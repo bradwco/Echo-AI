@@ -1,36 +1,58 @@
-# Learn more https://docs.github.com/en/get-started/getting-started-with-git/ignoring-files
-
-# dependencies
+# ─────────────────────────
+# React Native / Expo
+# ─────────────────────────
 node_modules/
-
-# Expo
 .expo/
 dist/
 web-build/
 expo-env.d.ts
-
-# Native
 *.orig.*
 *.jks
 *.p8
 *.p12
 *.key
 *.mobileprovision
-
-# Metro
 .metro-health-check*
 
-# debug
+# ─────────────────────────
+# Firebase / Credentials
+# ─────────────────────────
+firebase-debug.log
+serviceAccountKey.json
+
+# ─────────────────────────
+# Python / Flask Backend
+# ─────────────────────────
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+env/
+venv/
+.venv/
+*.env
+.env
+.env.*
+
+# ─────────────────────────
+# Debugging
+# ─────────────────────────
 npm-debug.*
 yarn-debug.*
 yarn-error.*
 
+# ─────────────────────────
 # macOS
+# ─────────────────────────
 .DS_Store
-*.pem
 
-# local env files
-.env*.local
-
-# typescript
+# ─────────────────────────
+# TypeScript
+# ─────────────────────────
 *.tsbuildinfo
+
+# ─────────────────────────
+# VS Code / Editor Settings
+# ─────────────────────────
+.vscode/
+.idea/
