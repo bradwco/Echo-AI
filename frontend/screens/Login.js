@@ -6,25 +6,31 @@ import {
   TextInput,
   TouchableOpacity,
   Image,
+  Alert,
 } from 'react-native';
+import { loginUser } from '../firebase';
 
 export default function Login({ navigation }) {
-    const [showPassword, setShowPassword] = useState(false);
-    const [email, setEmail] = useState('');
-    const [password, setPassword] = useState('');
-  
-    const handleLoginAttempt = () => {
-      if (email.trim() && password.trim()) {
-        navigation.replace('Home');
-        navigation.reset({
-            index: 0,
-            routes: [{ name: 'Home' }],
-          });
-      } else {
-        console.log('Email and password required');
-      }
-    };
-  
+  const [showPassword, setShowPassword] = useState(false);
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
+
+  const handleLoginAttempt = async () => {
+    if (!email.trim() || !password.trim()) {
+      Alert.alert('Missing Fields', 'Please enter both email and password.');
+      return;
+    }
+
+    const result = await loginUser(email, password);
+    if (result.success) {
+      navigation.reset({
+        index: 0,
+        routes: [{ name: 'Home' }],
+      });
+    } else {
+      Alert.alert('Login Failed', result.message);
+    }
+  };
 
   return (
     <View style={styles.container}>
@@ -37,23 +43,23 @@ export default function Login({ navigation }) {
 
       <Text style={styles.title}>Welcome back!</Text>
 
-        <TextInput
-            style={styles.input}
-            placeholder="Email"
-            placeholderTextColor="#999"
-            value={email}
-            onChangeText={setEmail}
-        />
+      <TextInput
+        style={styles.input}
+        placeholder="Email"
+        placeholderTextColor="#999"
+        value={email}
+        onChangeText={setEmail}
+      />
 
       <View style={styles.passwordContainer}>
         <TextInput
-            style={styles.passwordInput}
-            placeholder="Password"
-            placeholderTextColor="#999"
-            secureTextEntry={!showPassword}
-            value={password}
-            onChangeText={setPassword}
-            onSubmitEditing={handleLoginAttempt}
+          style={styles.passwordInput}
+          placeholder="Password"
+          placeholderTextColor="#999"
+          secureTextEntry={!showPassword}
+          value={password}
+          onChangeText={setPassword}
+          onSubmitEditing={handleLoginAttempt}
         />
         <TouchableOpacity
           onPress={() => setShowPassword(!showPassword)}
@@ -69,6 +75,11 @@ export default function Login({ navigation }) {
           />
         </TouchableOpacity>
       </View>
+
+      {/* Log In Button */}
+      <TouchableOpacity style={styles.loginButton} onPress={handleLoginAttempt}>
+        <Text style={styles.loginText}>Log In</Text>
+      </TouchableOpacity>
 
       <View style={styles.dividerContainer}>
         <View style={styles.line} />
@@ -168,6 +179,20 @@ const styles = StyleSheet.create({
     height: 22,
     resizeMode: 'contain',
     tintColor: '#555',
+  },
+  loginButton: {
+    backgroundColor: '#111B31',
+    paddingVertical: 12,
+    paddingHorizontal: 40,
+    borderRadius: 999,
+    marginBottom: 20,
+  },
+  loginText: {
+    color: '#fff',
+    fontSize: 16,
+    fontWeight: 'bold',
+    fontFamily: 'AveriaSerifLibre-Regular',
+    textAlign: 'center',
   },
   dividerContainer: {
     flexDirection: 'row',

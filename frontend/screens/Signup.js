@@ -1,4 +1,7 @@
+// Signup.js
+
 import React, { useState } from 'react';
+import { signupUser } from '../firebase';
 import {
   View,
   Text,
@@ -13,15 +16,13 @@ export default function Signup({ navigation }) {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
 
-  const handleSignupAttempt = () => {
-    if (email.trim() && password.trim()) {
-      navigation.replace('Home');
-      navigation.reset({
-        index: 0,
-        routes: [{ name: 'Home' }],
-      });
+  const handleSignupAttempt = async () => {
+    const result = await signupUser(email, password);
+    if (result.success) {
+      alert(result.message);
+      navigation.replace('Login');
     } else {
-      console.log('Email and password required');
+      alert(result.message);
     }
   };
 
@@ -70,6 +71,11 @@ export default function Signup({ navigation }) {
           />
         </TouchableOpacity>
       </View>
+
+      {/* Sign Up Button */}
+      <TouchableOpacity style={styles.signupButton} onPress={handleSignupAttempt}>
+        <Text style={styles.signupButtonText}>Sign Up</Text>
+      </TouchableOpacity>
 
       <View style={styles.dividerContainer}>
         <View style={styles.line} />
@@ -169,6 +175,20 @@ const styles = StyleSheet.create({
     height: 22,
     resizeMode: 'contain',
     tintColor: '#555',
+  },
+  signupButton: {
+    backgroundColor: '#111B31',
+    paddingVertical: 12,
+    paddingHorizontal: 40,
+    borderRadius: 999,
+    marginBottom: 20,
+  },
+  signupButtonText: {
+    color: '#fff',
+    fontSize: 16,
+    fontWeight: 'bold',
+    fontFamily: 'AveriaSerifLibre-Regular',
+    textAlign: 'center',
   },
   dividerContainer: {
     flexDirection: 'row',

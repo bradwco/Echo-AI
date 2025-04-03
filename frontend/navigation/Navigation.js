@@ -9,21 +9,52 @@ import HomeScreen from '../screens/Home';
 import RecordScreen from '../screens/Record';
 import SessionsScreen from '../screens/ViewSessions';
 import LiveScreen from '../screens/LiveFeedback';
+import ProfileScreen from '../screens/ProfileScreen';
+import HeaderRightProfile from '../components/HeaderRightProfile';
 
 const Stack = createNativeStackNavigator();
 
 export default function Navigation() {
   return (
     <NavigationContainer>
-      <Stack.Navigator initialRouteName="Start" screenOptions={{ headerShown: false }}>
-        <Stack.Screen name="Start" component={StartScreen} />
+      <Stack.Navigator
+        screenOptions={{
+        headerRight: () => <HeaderRightProfile />,
+        headerShadowVisible: true,
+    }}>
+        <Stack.Screen 
+            name="Start" 
+            component={StartScreen} 
+            options={{
+                headerShown: false,
+              }}
+        />
         <Stack.Screen name="Practice" component={PracticeScreen} />
-        <Stack.Screen name="Login" component={LoginScreen} />
-        <Stack.Screen name="Signup" component={SignupScreen} />
+        <Stack.Screen 
+            name="Login" 
+            component={LoginScreen} 
+            options={{
+                headerShown: false,
+              }}
+        />
+        <Stack.Screen 
+            name="Signup" 
+            component={SignupScreen} 
+            options={{
+                headerShown: false,
+              }}
+        />
         <Stack.Screen name="Home" component={HomeScreen} />
         <Stack.Screen name="Record" component={RecordScreen} />
         <Stack.Screen name="Sessions" component={SessionsScreen} />
         <Stack.Screen name="Live" component={LiveScreen} />
+        <Stack.Screen 
+            name="Profile" 
+            component={ProfileScreen} 
+            options={{
+                headerRight: () => null,
+              }}
+        />
       </Stack.Navigator>
     </NavigationContainer>
   );
