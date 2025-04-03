@@ -2,7 +2,7 @@ import { StatusBar } from 'expo-status-bar';
 import { StyleSheet, Text, View, TouchableOpacity, Dimensions } from 'react-native';
 import { Image } from 'react-native';
 
-export default function HomeScreen({ navigation }) {
+export default function StartScreen({ navigation }) {
       return (
         <View style={styles.container}>
           <View style={styles.topBackground} />
@@ -14,7 +14,7 @@ export default function HomeScreen({ navigation }) {
     
           <TouchableOpacity 
             style={styles.button}
-            onPress={() => navigation.navigate('Practice')}
+            onPress={() => navigation.navigate('Login')}
           >
             <Text style={styles.buttonText}>Get Started for Free</Text>
           </TouchableOpacity>
