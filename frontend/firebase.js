@@ -18,13 +18,16 @@ import {
   setDoc,
   getDoc,
   serverTimestamp,
+  deleteDoc,
 } from "firebase/firestore";
 import {
   getStorage,
   ref,
   uploadBytes,
-  getDownloadURL
+  getDownloadURL,
+  deleteObject,
 } from "firebase/storage";
+import axios from 'axios';
 
 // Firebase config
 const firebaseConfig = {
@@ -43,7 +46,7 @@ const auth = getAuth(app);
 const db = getFirestore(app);
 const storage = getStorage(app);
 
-// ✅ Auth functions
+// Auth functions
 export const signupUser = async (email, password) => {
   try {
     const userCredential = await createUserWithEmailAndPassword(auth, email, password);
@@ -84,20 +87,20 @@ export const monitorAuthState = (callback) => {
   });
 };
 
+// Profile functions
 export const uploadProfilePicture = async (userId, imageUri) => {
-    try {
-      const response = await fetch(imageUri);
-      const blob = await response.blob();
-      const imageRef = ref(storage, `profile_images/${userId}.jpg`);
-      await uploadBytes(imageRef, blob);
-      const downloadURL = await getDownloadURL(imageRef);
-      return downloadURL;
-    } catch (error) {
-      console.error("❌ Image upload failed:", error);
-      return null;
-    }
-  };
-  
+  try {
+    const response = await fetch(imageUri);
+    const blob = await response.blob();
+    const imageRef = ref(storage, `profile_images/${userId}.jpg`);
+    await uploadBytes(imageRef, blob);
+    const downloadURL = await getDownloadURL(imageRef);
+    return downloadURL;
+  } catch (error) {
+    console.error("❌ Image upload failed:", error);
+    return null;
+  }
+};
 
 export const saveUserProfile = async (userId, username, imageUrl) => {
   try {
@@ -110,7 +113,6 @@ export const saveUserProfile = async (userId, username, imageUrl) => {
   }
 };
 
-// ✅ Fetch user profile data
 export const getUserProfile = async (userId) => {
   try {
     const docRef = doc(db, "users", userId);
@@ -126,7 +128,120 @@ export const getUserProfile = async (userId) => {
   }
 };
 
-// Export services
+// Sessions
+export const createSession = async (userId, audioUri) => {
+  try {
+    const response = await fetch(audioUri);
+    const blob = await response.blob();
+
+    const audioRef = ref(storage, `audio/${userId}/${Date.now()}.m4a`);
+    await uploadBytes(audioRef, blob);
+    const audioUrl = await getDownloadURL(audioRef);
+
+    await addDoc(collection(db, "sessions"), {
+      userId,
+      audioUrl,
+      transcript: "",
+      feedback: [],
+      speed: null,
+      volume: null,
+      fillerWordCount: null,
+      fillerWords: [],
+      duration: null,
+      createdAt: serverTimestamp()
+    });
+  } catch (error) {
+    console.error("❌ Failed to create session:", error);
+  }
+};
+
+export const getUserSessions = async (userId) => {
+  try {
+    const q = query(collection(db, "sessions"), where("userId", "==", userId));
+    const querySnapshot = await getDocs(q);
+    const sessions = querySnapshot.docs.map(doc => ({
+      id: doc.id,
+      ...doc.data()
+    }));
+    return sessions;
+  } catch (error) {
+    console.error("❌ Failed to fetch sessions:", error);
+    return [];
+  }
+};
+
+export const deleteSession = async (sessionId, audioUrl) => {
+  try {
+    // Delete the audio file from storage
+    const storageRef = ref(storage, decodeURIComponent(new URL(audioUrl).pathname.split("/o/")[1]));
+    await deleteObject(storageRef);
+
+    // Delete the document from Firestore
+    await deleteDoc(doc(db, "sessions", sessionId));
+
+    console.log("🗑️ Session deleted:", sessionId);
+    return true;
+  } catch (error) {
+    console.error("❌ Failed to delete session:", error);
+    return false;
+  }
+};
+
+// Function to upload audio to Firebase and send it to the backend for transcription
+export const uploadAudioAndTranscribe = async (userId, audioUri) => {
+  try {
+    // Fetch the file from the audio URI
+    const response = await fetch(audioUri);
+    const blob = await response.blob();
+
+    // Create a reference to Firebase Storage
+    const audioRef = ref(storage, `audio/${userId}/${Date.now()}.m4a`);
+
+    // Upload the audio file to Firebase Storage
+    await uploadBytes(audioRef, blob);
+
+    // Get the download URL of the uploaded audio file
+    const audioUrl = await getDownloadURL(audioRef);
+
+    // Now send the audio file to your Flask backend for transcription
+    const formData = new FormData();
+    formData.append('audio', {
+      uri: audioUri,
+      name: 'audioFile.m4a',
+      type: 'audio/m4a',
+    });
+
+    // Send the audio file to Flask for transcription
+    const responseBackend = await axios.post('http://192.168.4.118:5000/transcribe', formData, {
+      headers: {
+        'Content-Type': 'multipart/form-data',
+      },
+    });
+
+    // Assuming the backend returns the transcript in the response
+    const transcript = responseBackend.data.transcript || "";
+
+    // Create a new session in Firestore with the audio URL and the transcript
+    await addDoc(collection(db, "sessions"), {
+      userId,
+      audioUrl,
+      transcript,
+      feedback: [],  // Placeholder, to be filled later if necessary
+      speed: null,
+      volume: null,
+      fillerWordCount: null,
+      fillerWords: [],  // Placeholder, to be filled later
+      duration: null,  // Placeholder, to be filled later
+      createdAt: serverTimestamp(),
+    });
+
+    console.log("✅ Audio uploaded, transcription saved to Firestore");
+
+  } catch (error) {
+    console.error("❌ Error uploading audio and transcription:", error);
+  }
+};
+
 export {
   auth,
   db,

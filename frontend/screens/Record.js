@@ -7,9 +7,11 @@ import {
   TouchableOpacity,
   Animated,
   Dimensions,
+  Alert,
 } from 'react-native';
 import { Audio } from 'expo-av';
 import * as Sharing from 'expo-sharing';
+import { uploadAudioAndTranscribe, auth } from '../firebase';  // Import the new function
 
 const { width } = Dimensions.get('window');
 
@@ -85,7 +87,6 @@ export default function Record() {
       if (recording) {
         await recording.stopAndUnloadAsync();
         const uri = recording.getURI();
-        console.log('Recording saved at:', uri);
         setRecordingURI(uri);
         setRecording(null);
         setIsRecording(false);
@@ -108,14 +109,24 @@ export default function Record() {
     clearInterval(intervalRef.current);
     setTime(0);
 
-    if (uri && (await Sharing.isAvailableAsync())) {
-      try {
-        await Sharing.shareAsync(uri);
-      } catch (err) {
-        console.error('Error sharing file:', err);
+    if (uri) {
+      const user = auth.currentUser;
+      if (!user) return;
+
+      // Call the new function to upload the audio, send it for transcription, and store the result in Firebase
+      await uploadAudioAndTranscribe(user.uid, uri);
+
+      Alert.alert('✅ Session Saved', 'Your recording session was successfully created.');
+
+      if (await Sharing.isAvailableAsync()) {
+        try {
+          await Sharing.shareAsync(uri);
+        } catch (err) {
+          console.error('Error sharing file:', err);
+        }
+      } else {
+        alert('Sharing not available on this device.');
       }
-    } else {
-      alert('Sharing not available on this device.');
     }
 
     resetState();
@@ -150,7 +161,6 @@ export default function Record() {
       </View>
 
       <View style={styles.bottomContainer}>
-        {/* Side-by-side buttons */}
         <View style={styles.buttonRow}>
           <TouchableOpacity
             activeOpacity={1}
@@ -172,15 +182,11 @@ export default function Record() {
             }}
           >
             <Animated.View style={[styles.controlButton, { transform: [{ scale: finishScaleAnim }] }]}>
-              <Image
-                source={require('../assets/check.png')}
-                style={styles.finishIcon}
-              />
+              <Image source={require('../assets/check.png')} style={styles.finishIcon} />
             </Animated.View>
           </TouchableOpacity>
         </View>
 
-        {/* Timer */}
         <Text style={styles.timer}>{formatTime(time)}</Text>
       </View>
     </View>
