@@ -6,6 +6,8 @@ import {
   createUserWithEmailAndPassword,
   signOut,
   sendEmailVerification,
+  initializeAuth,
+  getReactNativePersistence,
 } from "firebase/auth";
 import {
   getFirestore,
@@ -39,10 +41,12 @@ const firebaseConfig = {
   appId: "1:921605423315:web:159210ab3366d280c75426",
   measurementId: "G-YVHX9QRBW7",
 };
-
+import AsyncStorage from '@react-native-async-storage/async-storage';
 // Init Firebase services
 const app = initializeApp(firebaseConfig);
-const auth = getAuth(app);
+const auth = initializeAuth(app, {
+  persistence: getReactNativePersistence(AsyncStorage),
+});
 const db = getFirestore(app);
 const storage = getStorage(app);
 
@@ -129,32 +133,6 @@ export const getUserProfile = async (userId) => {
 };
 
 // Sessions
-export const createSession = async (userId, audioUri) => {
-  try {
-    const response = await fetch(audioUri);
-    const blob = await response.blob();
-
-    const audioRef = ref(storage, `audio/${userId}/${Date.now()}.m4a`);
-    await uploadBytes(audioRef, blob);
-    const audioUrl = await getDownloadURL(audioRef);
-
-    await addDoc(collection(db, "sessions"), {
-      userId,
-      audioUrl,
-      transcript: "",
-      feedback: [],
-      speed: null,
-      volume: null,
-      fillerWordCount: null,
-      fillerWords: [],
-      duration: null,
-      createdAt: serverTimestamp()
-    });
-  } catch (error) {
-    console.error("❌ Failed to create session:", error);
-  }
-};
-
 export const getUserSessions = async (userId) => {
   try {
     const q = query(collection(db, "sessions"), where("userId", "==", userId));
@@ -221,6 +199,22 @@ export const uploadFirebase = async (userId, audioUri) => {
     // Assuming the backend returns the transcript in the response
     const transcript = responseBackend.data.transcript || "";
 
+    // Get the AI feedback by sending the transcript to the feedback route
+    const responseFeedback = await axios.post('http://192.168.4.118:5000/feedback/ai_feedback', {
+      transcript,
+    });
+
+    const feedback = responseFeedback.data.aiFeedback || 'No feedback available.';
+    
+    //VOLUME
+    const responseVolume = await axios.post('http://192.168.4.118:5000/analyze/volume', formData, {
+      headers: {
+        'Content-Type': 'multipart/form-data',
+      },
+    });
+    const volume = responseVolume.data.volume ?? null;
+    console.log("Calculated volume (dB):", volume);
+
     // Create a sound object to calculate the duration
     const { sound } = await Audio.Sound.createAsync({ uri: audioUri });
 
@@ -242,11 +236,10 @@ export const uploadFirebase = async (userId, audioUri) => {
       userId,
       audioUrl,
       transcript,
-      feedback: [],  // Placeholder, to be filled later if necessary
-      speed, // Upload the calculated speed (WPM)
-      volume: null,
-      fillerWordCount: null,
-      fillerWords: [],  // Placeholder, to be filled later
+      feedback: [feedback],  
+      speed,
+      volume,
+      fillerWordCount: countFillerWords(transcript),
       duration: audioDuration,  // Upload the duration here
       createdAt: serverTimestamp(),
     });
@@ -255,6 +248,72 @@ export const uploadFirebase = async (userId, audioUri) => {
 
   } catch (error) {
     console.error("❌ Error uploading audio, transcription, speed, and duration:", error);
+  }
+};
+
+export const countFillerWords = (transcript) => {
+  const fillerWords = ['um', 'uh', 'like', 'you know', 'so', 'actually', 'basically', 'right', 'i mean', 'okay'];
+  const words = transcript.toLowerCase().match(/\b[\w']+\b/g) || [];
+
+  let count = 0;
+  words.forEach((word, index) => {
+    if (fillerWords.includes(word)) {
+      count++;
+    }
+
+    // Check for multi-word fillers like "you know" or "i mean"
+    const twoWordPhrase = word + ' ' + (words[index + 1] || '');
+    if (fillerWords.includes(twoWordPhrase)) {
+      count++;
+    }
+  });
+
+  return count;
+};
+
+export const saveUserSettings = async (userId, settings) => {
+  try {
+    await setDoc(doc(db, "userSettings", userId), {
+      userId,
+      speedValue: settings.speedValue,
+      speedTrigger: settings.speedTrigger,
+      volumeValue: settings.volumeValue,
+      volumeTrigger: settings.volumeTrigger,
+      fillerCount: settings.fillerCount,
+      fillerMode: settings.fillerMode,
+      customWords: settings.customWords,
+      lastUpdated: serverTimestamp()
+    });
+    console.log("✅ User settings saved successfully");
+    return true;
+  } catch (error) {
+    console.error("❌ Failed to save user settings:", error);
+    return false;
+  }
+};
+
+export const getUserSettings = async (userId) => {
+  try {
+    const docRef = doc(db, "userSettings", userId);
+    const docSnap = await getDoc(docRef);
+    
+    if (docSnap.exists()) {
+      return docSnap.data();
+    } else {
+      // Return default settings if no settings exist yet
+      return {
+        speedValue: "50-60",
+        speedTrigger: "1",
+        volumeValue: "0-20",
+        volumeTrigger: "1",
+        fillerCount: "1",
+        fillerMode: "default",
+        customWords: ""
+      };
+    }
+  } catch (error) {
+    console.error("❌ Error fetching user settings:", error);
+    return null;
   }
 };
 

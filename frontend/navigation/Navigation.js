@@ -45,9 +45,27 @@ export default function Navigation() {
               }}
         />
         <Stack.Screen name="Home" component={HomeScreen} />
-        <Stack.Screen name="Record" component={RecordScreen} />
-        <Stack.Screen name="Sessions" component={SessionsScreen} />
-        <Stack.Screen name="Live" component={LiveScreen} />
+        <Stack.Screen 
+          name="Record" 
+          component={RecordScreen} 
+          options={{
+            headerTitle: '',
+          }}
+          />
+        <Stack.Screen 
+          name="Sessions" 
+          component={SessionsScreen}
+          options={{
+            headerTitle: '',
+          }}
+          />
+        <Stack.Screen 
+          name="Live" 
+          component={LiveScreen} 
+          options={{
+            headerTitle: '',
+          }}
+          />
         <Stack.Screen 
             name="Profile" 
             component={ProfileScreen} 

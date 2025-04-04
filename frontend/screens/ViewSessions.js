@@ -104,14 +104,14 @@ export default function ViewSessions() {
     );
   };
 
-  // Format and limit filler words to 10 unique words
-  const formatFillerWords = (fillerWords) => {
-    const uniqueFillerWords = [...new Set(fillerWords)].slice(0, 10);
-    return uniqueFillerWords.join(', ') || 'None';
-  };
-
   return (
     <ScrollView contentContainerStyle={styles.container}>
+      {/* Title and Logo Section */}
+      <View style={styles.header}>
+        <Image source={require('../assets/EchoLogoGray.png')} style={styles.logo} />
+        <Text style={styles.title}>Sessions</Text>
+      </View>
+
       {sessions.map((session) => {
         const dateObj = session.createdAt ? new Date(session.createdAt.seconds * 1000) : null;
         const formattedDate = dateObj ? format(dateObj, 'MMM d, yyyy') : 'Unknown Date';
@@ -121,7 +121,7 @@ export default function ViewSessions() {
 
         // Pull speed (WPM) and Filler Words directly from Firebase
         const wpm = session.speed || 'N/A'; // From Firebase
-        const fillerWordsDisplay = formatFillerWords(session.fillerWords || []);
+
 
         return (
           <TouchableOpacity
@@ -146,7 +146,7 @@ export default function ViewSessions() {
                     onPress={() => handleAudioPlayback(session)}
                   >
                     <Text style={styles.audioButtonText}>
-                      {playingId === session.id ? '⏹ Stop Audio' : '▶ Play Audio'}
+                      {playingId === session.id ? 'Stop Audio' : 'Play Audio'}
                     </Text>
                   </TouchableOpacity>
 
@@ -164,9 +164,9 @@ export default function ViewSessions() {
                 <Text style={styles.metricTitle}>Metrics</Text>
                 <View style={styles.sectionBox}>
                   <Text style={styles.metricText}>Speed: {wpm} WPM</Text>
-                  <Text style={styles.metricText}>Volume: {session.volume || 'N/A'} dB</Text>
+                  <Text style={styles.metricText}>Average Volume: {session.volume || 'N/A'} dB</Text>
                   <Text style={styles.metricText}>
-                    Filler Words ({session.fillerWordCount || 'N/A'}): {fillerWordsDisplay}
+                    Filler Words: {session.fillerWordCount ?? 'N/A'}
                   </Text>
                   <Text style={styles.metricText}>Duration: {displayDuration}</Text>
                 </View>
@@ -193,6 +193,23 @@ const styles = StyleSheet.create({
   container: {
     padding: 16,
     paddingBottom: 32,
+  },
+  header: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 20,
+  },
+  logo: {
+    width: 60,
+    height: 60,
+    resizeMode: 'contain',
+    marginRight: 10,
+  },
+  title: {
+    fontSize: 24,
+    fontWeight: 'bold',
+    fontFamily: 'AveriaSerifLibre-Regular',
   },
   card: {
     backgroundColor: '#1C2541',
