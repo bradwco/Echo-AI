@@ -21,6 +21,7 @@ import {
   getDoc,
   serverTimestamp,
   deleteDoc,
+  updateDoc,
 } from "firebase/firestore";
 import {
   getStorage,
@@ -271,49 +272,52 @@ export const countFillerWords = (transcript) => {
   return count;
 };
 
-export const saveUserSettings = async (userId, settings) => {
-  try {
-    await setDoc(doc(db, "userSettings", userId), {
-      userId,
-      speedValue: settings.speedValue,
-      speedTrigger: settings.speedTrigger,
-      volumeValue: settings.volumeValue,
-      volumeTrigger: settings.volumeTrigger,
-      fillerCount: settings.fillerCount,
-      fillerMode: settings.fillerMode,
-      customWords: settings.customWords,
-      lastUpdated: serverTimestamp()
-    });
-    console.log("✅ User settings saved successfully");
-    return true;
-  } catch (error) {
-    console.error("❌ Failed to save user settings:", error);
-    return false;
-  }
-};
-
 export const getUserSettings = async (userId) => {
   try {
-    const docRef = doc(db, "userSettings", userId);
+    const docRef = doc(db, 'users', userId);
     const docSnap = await getDoc(docRef);
     
     if (docSnap.exists()) {
-      return docSnap.data();
-    } else {
-      // Return default settings if no settings exist yet
+      const data = docSnap.data();
       return {
-        speedValue: "50-60",
-        speedTrigger: "1",
-        volumeValue: "0-20",
-        volumeTrigger: "1",
-        fillerCount: "1",
-        fillerMode: "default",
-        customWords: ""
+        speedValue: data.speedValue || "50-60",
+        volumeValue: data.volumeValue || "0-20",
+        fillerCount: data.fillerCount || "1",
+        speedTrigger: data.speedTrigger || "3",
+        volumeTrigger: data.volumeTrigger || "3",
+        fillerTrigger: data.fillerTrigger || "3",
+        volumeZeroPoint: data.volumeZeroPoint || 0,
+        fillerMode: data.fillerMode || "default",
+        customWords: data.customWords || ""
       };
+    } else {
+      console.log("No settings found for user:", userId);
+      return null;
     }
   } catch (error) {
-    console.error("❌ Error fetching user settings:", error);
-    return null;
+    console.error("Error getting user settings:", error);
+    throw error;
+  }
+};
+
+export const saveUserSettings = async (userId, settings) => {
+  try {
+    const docRef = doc(db, 'users', userId);
+    await setDoc(docRef, {
+      speedValue: settings.speedValue,
+      volumeValue: settings.volumeValue,
+      fillerCount: settings.fillerCount,
+      speedTrigger: settings.speedTrigger,
+      volumeTrigger: settings.volumeTrigger,
+      fillerTrigger: settings.fillerTrigger,
+      volumeZeroPoint: settings.volumeZeroPoint,
+      fillerMode: settings.fillerMode,
+      customWords: settings.customWords
+    }, { merge: true });
+    console.log("Settings saved successfully for user:", userId);
+  } catch (error) {
+    console.error("Error saving user settings:", error);
+    throw error;
   }
 };
 

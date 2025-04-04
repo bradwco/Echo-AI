@@ -1,245 +1,945 @@
-// LiveFeedback.js
-import React, { useRef, useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   View,
   Text,
+  TextInput,
   StyleSheet,
-  Switch,
   Image,
-  ScrollView,
   TouchableOpacity,
-  Animated,
+  ActivityIndicator,
+  ScrollView,
+  Alert,
 } from 'react-native';
+import * as ImagePicker from 'expo-image-picker';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import { Picker } from '@react-native-picker/picker';
+import {
+  auth,
+  saveUserProfile,
+  getUserProfile,
+  uploadProfilePicture,
+  logoutUser,
+  saveUserSettings,
+  getUserSettings,
+} from '../firebase';
 import { Audio } from 'expo-av';
-import { auth, getUserSettings } from '../firebase';
 
-export default function LiveFeedback() {
-  const [enableSpeed, setEnableSpeed] = useState(false);
-  const [enableVolume, setEnableVolume] = useState(false);
-  const [enableFiller, setEnableFiller] = useState(false);
-  const [isRecording, setIsRecording] = useState(false);
-  const [recording, setRecording] = useState(null);
-  const [userSettings, setUserSettings] = useState(null);
-  const [showOverlay, setShowOverlay] = useState(false);
-  const [flashVisible, setFlashVisible] = useState(true);
-  const [screenFlash, setScreenFlash] = useState(false);
-  const scaleAnim = useRef(new Animated.Value(1)).current;
+const styles = StyleSheet.create({
+  screen: {
+    flex: 1,
+    backgroundColor: '#fff',
+  },
+  container: {
+    paddingTop: 80,
+    paddingBottom: 100,
+    paddingHorizontal: 20,
+    alignItems: 'center',
+  },
+  logoutBtn: {
+    position: 'absolute',
+    top: 40,
+    right: 20,
+    backgroundColor: '#CC4444',
+    padding: 10,
+    borderRadius: 10,
+    zIndex: 10,
+  },
+  logoutIcon: {
+    width: 24,
+    height: 24,
+    tintColor: '#fff',
+    resizeMode: 'contain',
+  },
+  profilePic: {
+    width: 120,
+    height: 120,
+    borderRadius: 60,
+    borderWidth: 2,
+    borderColor: '#0B132B',
+    marginBottom: 30,
+  },
+  usernameContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 40,
+  },
+  username: {
+    fontSize: 22,
+    fontWeight: 'bold',
+    marginRight: 10,
+  },
+  usernameInput: {
+    fontSize: 20,
+    borderBottomWidth: 1,
+    borderColor: '#aaa',
+    marginRight: 10,
+  },
+  editIcon: {
+    width: 28,
+    height: 28,
+    resizeMode: 'contain',
+    tintColor: '#0B132B',
+  },
+  liveSettingsHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    backgroundColor: '#EAEAEA',
+    padding: 12,
+    borderRadius: 10,
+    width: '100%',
+    marginBottom: 10,
+  },
+  liveSettingsTitle: {
+    fontSize: 18,
+    fontWeight: 'bold',
+  },
+  liveSettingsToggle: {
+    fontSize: 16,
+    fontWeight: 'bold',
+  },
+  liveSettingsBox: {
+    width: '100%',
+    backgroundColor: '#F7F7F7',
+    padding: 16,
+    borderRadius: 10,
+  },
+  label: { 
+    marginTop: 16, 
+    marginBottom: 6 
+  },
+  picker: { 
+    backgroundColor: '#fff', 
+    borderRadius: 6 
+  },
+  input: { 
+    padding: 10, 
+    marginTop: 10, 
+    backgroundColor: '#f9f9f9', 
+    borderRadius: 6 
+  },
+  calibrationSection: {
+    marginTop: 10,
+    padding: 15,
+    backgroundColor: '#f8f8f8',
+    borderRadius: 10,
+    width: '100%',
+  },
+  calibrationInfo: {
+    fontSize: 14,
+    color: '#666',
+    marginBottom: 10,
+  },
+  zeroPoint: {
+    fontSize: 16,
+    marginBottom: 15,
+    fontFamily: 'AveriaSerifLibre-Regular',
+  },
+  calibrateButton: {
+    backgroundColor: '#007AFF',
+    padding: 15,
+    borderRadius: 8,
+    alignItems: 'center',
+    marginTop: 16,
+  },
+  calibratingButton: {
+    backgroundColor: '#999',
+  },
+  calibrateButtonText: {
+    color: 'white',
+    fontSize: 16,
+    fontWeight: 'bold',
+  },
+  calibrationStatus: {
+    marginTop: 10,
+    fontSize: 14,
+    color: '#666',
+    textAlign: 'center',
+  },
+  settingsContainer: {
+    width: '100%',
+    paddingHorizontal: 20,
+  },
+  settingRow: {
+    backgroundColor: '#fff',
+    borderRadius: 10,
+    padding: 15,
+    marginBottom: 10,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.2,
+    shadowRadius: 2,
+    elevation: 2,
+  },
+  settingPreview: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  settingLabel: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#333',
+  },
+  settingValue: {
+    fontSize: 16,
+    color: '#666',
+  },
+  dropdownContent: {
+    backgroundColor: '#fff',
+    borderRadius: 10,
+    marginTop: 5,
+    padding: 10,
+  },
+  settingGroup: {
+    marginBottom: 10,
+  },
+  settingSubLabel: {
+    fontSize: 14,
+    fontWeight: 'bold',
+    marginBottom: 5,
+  },
+  dropdownContainer: {
+    marginBottom: 10,
+  },
+  titleContainer: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  dropdownArrow: {
+    fontSize: 16,
+    fontWeight: 'bold',
+  },
+  settingText: {
+    fontSize: 14,
+    color: '#666',
+  },
+});
+
+export default function ProfileScreen({ navigation }) {
+  const [username, setUsername] = useState('YourUsername');
+  const [isEditing, setIsEditing] = useState(false);
+  const [profileImage, setProfileImage] = useState(require('../assets/user.png'));
+  const [loading, setLoading] = useState(true);
+  const [showLiveSettings, setShowLiveSettings] = useState(false);
+  const [userSettings, setUserSettings] = useState({});
+  const scrollViewRef = useRef(null);
+
+  const [speedValue, setSpeedValue] = useState("50-60");
+  const [speedTrigger, setSpeedTrigger] = useState("3");
+  const [volumeValue, setVolumeValue] = useState("0-20");
+  const [volumeTrigger, setVolumeTrigger] = useState("3");
+  const [fillerCount, setFillerCount] = useState("1");
+  const [fillerMode, setFillerMode] = useState("default");
+  const [customWords, setCustomWords] = useState("");
+  const [isCalibrating, setIsCalibrating] = useState(false);
+  const [calibrationStatus, setCalibrationStatus] = useState('');
+
+  const [expandedSpeed, setExpandedSpeed] = useState(false);
+  const [expandedVolume, setExpandedVolume] = useState(false);
+  const [expandedFiller, setExpandedFiller] = useState(false);
+  const [expandedFillerMode, setExpandedFillerMode] = useState(false);
+  const [expandedCalibration, setExpandedCalibration] = useState(false);
+  const [fillerTrigger, setFillerTrigger] = useState('3');
 
   useEffect(() => {
-    getUserSettings().then(settings => {
-      setUserSettings(settings);
-    });
-  }, []);
+    const fetchProfile = async () => {
+      const user = auth.currentUser;
+      if (!user) return setLoading(false);
 
-  useEffect(() => {
-    let interval;
-    let flashInterval;
+      try {
+        const data = await getUserProfile(user.uid);
+        if (data?.username) setUsername(data.username);
+        if (data?.imageUrl) setProfileImage({ uri: data.imageUrl });
 
-    const flashScreen = () => {
-      setScreenFlash(true);
-      setTimeout(() => setScreenFlash(false), 200);
+        // Fetch user settings
+        const settings = await getUserSettings(user.uid);
+        if (settings) {
+          setUserSettings(settings);
+          // Update local state immediately
+          if (settings.speedValue) setSpeedValue(settings.speedValue);
+          if (settings.speedTrigger) setSpeedTrigger(settings.speedTrigger);
+          if (settings.volumeValue) setVolumeValue(settings.volumeValue);
+          if (settings.volumeTrigger) setVolumeTrigger(settings.volumeTrigger);
+          if (settings.fillerCount) setFillerCount(settings.fillerCount);
+          if (settings.fillerMode) setFillerMode(settings.fillerMode);
+          if (settings.customWords) setCustomWords(settings.customWords);
+        }
+      } catch (err) {
+        console.error('Error fetching profile:', err);
+      }
+      setLoading(false);
     };
 
-    const analyzeAndVibrate = async (uri) => {
-      console.log('1️⃣ Starting analyzeAndVibrate');
-      if (!uri) return console.log('❌ No URI');
-      if (!userSettings) return console.log('❌ No userSettings');
-      if (!auth.currentUser) return console.log('❌ No auth user');
-      if (!userSettings || !auth.currentUser || !uri) return;
-      console.log('Sending audio to backend for analysis...');
-      console.log('Audio URI:', uri);
+    const unsubscribe = auth.onAuthStateChanged(fetchProfile);
+    return unsubscribe;
+  }, []);
 
+  const pickImage = async () => {
+    const result = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: ImagePicker.MediaTypeOptions.Images,
+      allowsEditing: true,
+      aspect: [1, 1],
+      quality: 1,
+    });
+
+    if (!result.canceled) {
+      const uri = result.assets[0].uri;
+      setProfileImage({ uri });
+
+      const user = auth.currentUser;
+      if (!user) return;
+      const imageUrl = await uploadProfilePicture(user.uid, uri);
+      await saveUserProfile(user.uid, username, imageUrl);
+    }
+  };
+
+  const handleUsernameSave = async () => {
+    const user = auth.currentUser;
+    if (!user) return;
+    await saveUserProfile(user.uid, username, profileImage.uri || '');
+    setIsEditing(false);
+  };
+
+  const handleLogout = async () => {
+    await logoutUser();
+    await AsyncStorage.removeItem('profileImageUrl');
+    navigation.reset({ index: 0, routes: [{ name: 'Start' }] });
+  };
+
+  const handleSettingChange = async (setting, value) => {
+    try {
+      // Update local state immediately
+      const updatedSettings = {
+        ...userSettings,
+        [setting]: value,
+        volumeZeroPoint: userSettings.volumeZeroPoint // Preserve the volumeZeroPoint
+      };
+      
+      // Save to Firebase in the background
+      saveUserSettings(auth.currentUser.uid, updatedSettings).then(() => {
+        setUserSettings(updatedSettings);
+        console.log(`✅ ${setting} updated to:`, value);
+      }).catch(error => {
+        console.error(`❌ Error updating ${setting}:`, error);
+        Alert.alert('Error', `Failed to update ${setting}. Please try again.`);
+      });
+    } catch (error) {
+      console.error(`❌ Error updating ${setting}:`, error);
+      Alert.alert('Error', `Failed to update ${setting}. Please try again.`);
+    }
+  };
+
+  const handleSpeedValueChange = (value) => {
+    setSpeedValue(value); // Update local state immediately
+    handleSettingChange('speedValue', value);
+  };
+
+  const handleSpeedTriggerChange = (value) => {
+    setSpeedTrigger(value); // Update local state immediately
+    handleSettingChange('speedTrigger', value);
+  };
+
+  const handleVolumeValueChange = (value) => {
+    setVolumeValue(value); // Update local state immediately
+    handleSettingChange('volumeValue', value);
+  };
+
+  const handleVolumeTriggerChange = (value) => {
+    setVolumeTrigger(value); // Update local state immediately
+    handleSettingChange('volumeTrigger', value);
+  };
+
+  const handleFillerCountChange = (value) => {
+    setFillerCount(value); // Update local state immediately
+    handleSettingChange('fillerCount', value);
+  };
+
+  const handleFillerModeChange = (value) => {
+    setFillerMode(value); // Update local state immediately
+    handleSettingChange('fillerMode', value);
+  };
+
+  const handleCustomWordsChange = (value) => {
+    setCustomWords(value); // Update local state immediately
+    handleSettingChange('customWords', value);
+  };
+
+  const handleFillerTriggerChange = (value) => {
+    setFillerTrigger(value); // Update local state immediately
+    handleSettingChange('fillerTrigger', value);
+  };
+
+  const calibrateVolume = async () => {
+    if (isCalibrating) return;
+    
+    setIsCalibrating(true);
+    setCalibrationStatus('Calibrating... Please remain silent for 5 seconds.');
+    
+    try {
+      // Request permissions
+      await Audio.requestPermissionsAsync();
+      await Audio.setAudioModeAsync({
+        allowsRecordingIOS: true,
+        playsInSilentModeIOS: true,
+      });
+
+      // Create a new recording
+      const { recording } = await Audio.Recording.createAsync(
+        Audio.RecordingOptionsPresets.HIGH_QUALITY
+      );
+
+      // Wait for 5 seconds to measure ambient noise
+      await new Promise(resolve => setTimeout(resolve, 5000));
+
+      // Stop recording
+      await recording.stopAndUnloadAsync();
+      const uri = recording.getURI();
+
+      // Send to backend for analysis
       const formData = new FormData();
-      formData.append('userId', auth.currentUser.uid);
       formData.append('audio', {
         uri,
-        name: 'clip.m4a',
+        name: 'calibration.m4a',
         type: 'audio/m4a',
       });
 
-      try {
-        const res = await fetch('http://192.168.4.118:5000/analyze_live', {
-          method: 'POST',
-          body: formData,
-        });
-        const text = await res.text();
-        console.log('📨 Raw backend text:', text);
-        let data;
-        try {
-          data = JSON.parse(text);
-        } catch (err) {
-          console.log('❌ Failed to parse backend response:', err);
-          return;
-        }
-        console.log('Backend response:', data);
+      const response = await fetch('http://192.168.4.118:5000/analyze_live', {
+        method: 'POST',
+        body: formData,
+        headers: {
+          'Accept': 'application/json',
+        },
+      });
 
-        const wpm = Number(data.wpm);
-        const volume = Number(data.volume);
-        const filler = Number(data.fillerCount);
-
-        console.log('Checking thresholds:', {
-          enableSpeed, actualWPM: wpm, target: userSettings.speedValue,
-          enableVolume, actualVol: volume, target: userSettings.volumeValue,
-          enableFiller, actualFiller: filler, target: userSettings.fillerCount,
-        });
-
-        if (enableSpeed && !isNaN(wpm) && wpm > userSettings.speedValue) {
-          console.log('⚠️ Speed threshold exceeded!');
-          flashScreen();
-        }
-        if (enableVolume && !isNaN(volume) && volume > userSettings.volumeValue) {
-          console.log('⚠️ Volume threshold exceeded!');
-          flashScreen();
-        }
-        if (enableFiller && !isNaN(filler) && filler > userSettings.fillerCount) {
-          console.log('⚠️ Filler threshold exceeded!');
-          flashScreen();
-        }
-      } catch (err) {
-        console.log('Analysis error:', err);
+      if (!response.ok) {
+        throw new Error('Failed to analyze calibration audio');
       }
-    };
 
-    const loopRecording = async () => {
-      try {
-        const activeRecording = recording;
-        if (!activeRecording) return;
-        console.log('Stopping previous recording...');
-        await activeRecording.stopAndUnloadAsync();
-        const uri = activeRecording.getURI();
-        console.log('📦 Recorded file URI:', uri);
-        if (!uri) return console.log('❌ URI is null');
-        setRecording(null);
-        console.log('Analyzing URI...');
-        await analyzeAndVibrate(uri);
-        console.log('Starting new recording...');
-        await startRecording();
-      } catch (err) {
-        console.log('Loop error:', err);
-      }
-    };
+      const data = await response.json();
+      const ambientNoiseLevel = data.volume;
 
-    if (isRecording) {
-      setShowOverlay(true);
-      flashInterval = setInterval(() => setFlashVisible(v => !v), 500);
-      startRecording();
-      interval = setInterval(loopRecording, 5000);
-    } else {
-      clearInterval(interval);
-      clearInterval(flashInterval);
-      setShowOverlay(false);
-      if (recording) {
-        recording.stopAndUnloadAsync().catch(err => {
-          if (!err.message.includes('already been unloaded')) {
-            console.log('Stop recording error:', err);
-          }
-        });
-        setRecording(null);
-      }
-    }
+      // Create updated settings object with all current settings plus the new zero point
+      const updatedSettings = {
+        speedValue: userSettings.speedValue,
+        speedTrigger: userSettings.speedTrigger,
+        volumeValue: userSettings.volumeValue,
+        volumeTrigger: userSettings.volumeTrigger,
+        fillerCount: userSettings.fillerCount,
+        fillerMode: userSettings.fillerMode,
+        customWords: userSettings.customWords,
+        volumeZeroPoint: ambientNoiseLevel
+      };
 
-    return () => {
-      clearInterval(interval);
-      clearInterval(flashInterval);
-      if (recording) {
-        recording.stopAndUnloadAsync().catch(err => {
-          if (!err.message.includes('already been unloaded')) {
-            console.log('Stop recording error:', err);
-          }
-        });
-        setRecording(null);
-      }
-      setShowOverlay(false);
-    };
-  }, [isRecording, userSettings, enableSpeed, enableVolume, enableFiller]);
-
-  const startRecording = async () => {
-    try {
-      if (recording) {
-        console.log('Recording already in progress');
-        return;
-      }
-      await Audio.requestPermissionsAsync();
-      console.log('✅ Microphone permission granted');
-      await Audio.setAudioModeAsync({ allowsRecordingIOS: true, playsInSilentModeIOS: true });
-      const { recording: newRecording } = await Audio.Recording.createAsync(
-        Audio.RecordingOptionsPresets.HIGH_QUALITY
+      // Save to Firebase
+      await saveUserSettings(auth.currentUser.uid, updatedSettings);
+      
+      // Update local state
+      setUserSettings(updatedSettings);
+      
+      setCalibrationStatus(`Calibration complete! Zero point set to ${ambientNoiseLevel.toFixed(1)} dB`);
+      Alert.alert(
+        'Calibration Complete',
+        `Ambient noise level measured at ${ambientNoiseLevel.toFixed(1)} dB. This will be used as the zero point for volume measurements.`
       );
-      setRecording(newRecording);
-      console.log('🎤 Recording started');
-    } catch (err) {
-      console.log('Recording error:', err);
+    } catch (error) {
+      console.error('Calibration error:', error);
+      setCalibrationStatus('Calibration failed. Please try again.');
+      Alert.alert('Calibration Failed', 'There was an error during calibration. Please try again.');
+    } finally {
+      setIsCalibrating(false);
     }
   };
 
-  const toggleRecording = () => {
-    console.log('🔴 Play/Pause button tapped');
-    Animated.sequence([
-      Animated.timing(scaleAnim, { toValue: 1.15, duration: 100, useNativeDriver: true }),
-      Animated.timing(scaleAnim, { toValue: 1, duration: 100, useNativeDriver: true })
-    ]).start();
-    setIsRecording(prev => !prev);
+  const saveSettings = async () => {
+    if (!auth.currentUser) {
+      console.error('No authenticated user');
+      return;
+    }
+
+    try {
+      const settings = {
+        speedValue: speedValue,
+        volumeValue: volumeValue,
+        fillerCount: fillerCount,
+        speedTrigger: speedTrigger,
+        volumeTrigger: volumeTrigger,
+        fillerTrigger: fillerTrigger,
+        volumeZeroPoint: userSettings.volumeZeroPoint,
+        fillerMode: fillerMode,
+        customWords: customWords
+      };
+
+      await saveUserSettings(auth.currentUser.uid, settings);
+      setUserSettings(settings);
+      Alert.alert('Success', 'Settings saved successfully');
+    } catch (error) {
+      console.error('Error saving settings:', error);
+      Alert.alert('Error', 'Failed to save settings');
+    }
   };
 
-  return (
-    <View style={[styles.screen, screenFlash && { backgroundColor: 'red' }]}>
-      <ScrollView contentContainerStyle={styles.container}>
-        <Image source={require('../assets/EchoLogoGray.png')} style={styles.logo} />
-        <Text style={styles.title}>Live Feedback Settings</Text>
-
-        <View style={styles.settingRow}>
-          <Text style={styles.label}>Speed</Text>
-          <Switch value={enableSpeed} onValueChange={() => {
-            setEnableSpeed(!enableSpeed);
-            setEnableVolume(false);
-            setEnableFiller(false);
-          }} />
-        </View>
-
-        <View style={styles.settingRow}>
-          <Text style={styles.label}>Volume</Text>
-          <Switch value={enableVolume} onValueChange={() => {
-            setEnableSpeed(false);
-            setEnableVolume(!enableVolume);
-            setEnableFiller(false);
-          }} />
-        </View>
-
-        <View style={styles.settingRow}>
-          <Text style={styles.label}>Filler</Text>
-          <Switch value={enableFiller} onValueChange={() => {
-            setEnableSpeed(false);
-            setEnableVolume(false);
-            setEnableFiller(!enableFiller);
-          }} />
-        </View>
-
-        <TouchableOpacity style={styles.buttonWrapper} onPress={toggleRecording}>
-          <Animated.View style={[styles.controlButton, { transform: [{ scale: scaleAnim }] }]}> 
-            <Text style={styles.playIcon}>{isRecording ? '❚❚' : '▶'}</Text>
-          </Animated.View>
-        </TouchableOpacity>
-      </ScrollView>
-
-      {showOverlay && (
-        <View style={styles.overlay} pointerEvents="box-none">
-          {flashVisible && <Text style={styles.recordingText}>Recording...</Text>}
+  const SettingsDropdown = ({ isExpanded, onToggle, category, settings }) => (
+    <View style={styles.dropdownContainer}>
+      <TouchableOpacity style={styles.titleContainer} onPress={onToggle}>
+        <Text style={styles.label}>{category.charAt(0).toUpperCase() + category.slice(1)}</Text>
+        <Text style={styles.dropdownArrow}>{isExpanded ? '▼' : '▶'}</Text>
+      </TouchableOpacity>
+      {isExpanded && settings && (
+        <View style={styles.dropdownContent}>
+          {category === 'speed' && (
+            <>
+              <Text style={styles.settingText}>Target: {settings.speedValue} WPM</Text>
+              <Text style={styles.settingText}>Trigger: {settings.speedTrigger}s</Text>
+            </>
+          )}
+          {category === 'volume' && (
+            <>
+              <Text style={styles.settingText}>Target: {settings.volumeValue} dB</Text>
+              <Text style={styles.settingText}>Trigger: {settings.volumeTrigger}s</Text>
+              <Text style={styles.settingText}>Zero: {settings.volumeZeroPoint?.toFixed(1) || '0.0'} dB</Text>
+            </>
+          )}
+          {category === 'filler' && (
+            <>
+              <Text style={styles.settingText}>Target: {settings.fillerCount}</Text>
+              <Text style={styles.settingText}>Trigger: {settings.fillerTrigger}s</Text>
+              <Text style={styles.settingText}>Mode: {settings.fillerMode}</Text>
+              {settings.customWords && (
+                <Text style={styles.settingText}>Custom: {settings.customWords}</Text>
+              )}
+            </>
+          )}
         </View>
       )}
     </View>
   );
-}
 
-const styles = StyleSheet.create({
-  screen: { flex: 1, backgroundColor: '#fff' },
-  container: { paddingTop: 60, paddingBottom: 30, paddingHorizontal: 25, alignItems: 'center' },
-  logo: { width: 60, height: 60, resizeMode: 'contain', marginBottom: 10 },
-  title: { fontSize: 20, fontWeight: 'bold', fontFamily: 'AveriaSerifLibre-Regular', marginBottom: 30 },
-  settingRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', width: '100%', marginVertical: 12 },
-  label: { fontSize: 18, fontWeight: 'bold', fontFamily: 'AveriaSerifLibre-Regular' },
-  buttonWrapper: { marginTop: 30, alignSelf: 'center', zIndex: 2 },
-  controlButton: { backgroundColor: '#0B132B', width: 160, height: 160, borderRadius: 60, alignItems: 'center', justifyContent: 'center', shadowColor: '#000', shadowOpacity: 0.25, shadowOffset: { width: 0, height: 4 }, elevation: 10 },
-  playIcon: { fontSize: 64, color: '#fff', fontWeight: 'bold' },
-  overlay: { ...StyleSheet.absoluteFillObject, backgroundColor: 'rgba(0,0,0,0.6)', alignItems: 'center', justifyContent: 'center', zIndex: 1 },
-  recordingText: { fontSize: 28, fontWeight: 'bold', color: 'red', backgroundColor: '#fff', padding: 10, borderRadius: 8 }
-});
+  const renderFillerSettings = () => (
+    <View style={styles.settingsContainer}>
+      <View style={styles.settingRow}>
+        <Text style={styles.settingLabel}>Filler Word Count</Text>
+        <Picker
+          selectedValue={fillerCount}
+          onValueChange={handleFillerCountChange}
+          style={styles.picker}
+        >
+          {Array.from({ length: 10 }, (_, i) => i + 1).map((num) => (
+            <Picker.Item key={num} label={num.toString()} value={num.toString()} />
+          ))}
+        </Picker>
+      </View>
+
+      <View style={styles.settingRow}>
+        <Text style={styles.settingLabel}>Filler Trigger (s)</Text>
+        <Picker
+          selectedValue={fillerTrigger}
+          onValueChange={handleFillerTriggerChange}
+          style={styles.picker}
+        >
+          {Array.from({ length: 10 }, (_, i) => i + 1).map((num) => (
+            <Picker.Item key={num} label={num.toString()} value={num.toString()} />
+          ))}
+        </Picker>
+      </View>
+
+      <View style={styles.settingRow}>
+        <Text style={styles.settingLabel}>Filler Word Mode</Text>
+        <Picker
+          selectedValue={fillerMode}
+          onValueChange={handleFillerModeChange}
+          style={styles.picker}
+        >
+          <Picker.Item label="Default" value="default" />
+          <Picker.Item label="Custom" value="custom" />
+        </Picker>
+      </View>
+
+      {fillerMode === 'custom' && (
+        <View style={styles.settingRow}>
+          <Text style={styles.settingLabel}>Custom Words</Text>
+          <TextInput
+            value={customWords}
+            onChangeText={handleCustomWordsChange}
+            placeholder="Enter words (comma-separated)"
+            placeholderTextColor="#666"
+            style={styles.input}
+            multiline
+          />
+        </View>
+      )}
+    </View>
+  );
+
+  const renderLiveFeedbackSettings = () => (
+    <View style={styles.settingsContainer}>
+      <View style={styles.settingRow}>
+        <Text style={styles.settingLabel}>Speed Range (WPM)</Text>
+        <Picker
+          selectedValue={speedValue}
+          onValueChange={(itemValue) => setSpeedValue(itemValue)}
+          style={styles.picker}
+        >
+          {Array.from({ length: 20 }, (_, i) => i * 10).map((num) => (
+            <Picker.Item key={num} label={`${num}-${num + 10}`} value={`${num}-${num + 10}`} />
+          ))}
+        </Picker>
+      </View>
+
+      <View style={styles.settingRow}>
+        <Text style={styles.settingLabel}>Speed Trigger (s)</Text>
+        <Picker
+          selectedValue={speedTrigger}
+          onValueChange={(itemValue) => setSpeedTrigger(itemValue)}
+          style={styles.picker}
+        >
+          {Array.from({ length: 10 }, (_, i) => i + 1).map((num) => (
+            <Picker.Item key={num} label={num.toString()} value={num.toString()} />
+          ))}
+        </Picker>
+      </View>
+
+      <View style={styles.settingRow}>
+        <Text style={styles.settingLabel}>Volume Range (dB)</Text>
+        <Picker
+          selectedValue={volumeValue}
+          onValueChange={(itemValue) => setVolumeValue(itemValue)}
+          style={styles.picker}
+        >
+          {Array.from({ length: 30 }, (_, i) => i * 5).map((num) => (
+            <Picker.Item key={num} label={`${num}-${num + 5}`} value={`${num}-${num + 5}`} />
+          ))}
+        </Picker>
+      </View>
+
+      <View style={styles.settingRow}>
+        <Text style={styles.settingLabel}>Volume Trigger (s)</Text>
+        <Picker
+          selectedValue={volumeTrigger}
+          onValueChange={(itemValue) => setVolumeTrigger(itemValue)}
+          style={styles.picker}
+        >
+          {Array.from({ length: 10 }, (_, i) => i + 1).map((num) => (
+            <Picker.Item key={num} label={num.toString()} value={num.toString()} />
+          ))}
+        </Picker>
+      </View>
+
+      <View style={styles.settingRow}>
+        <Text style={styles.settingLabel}>Filler Word Count</Text>
+        <Picker
+          selectedValue={fillerCount}
+          onValueChange={(itemValue) => setFillerCount(itemValue)}
+          style={styles.picker}
+        >
+          {Array.from({ length: 10 }, (_, i) => i + 1).map((num) => (
+            <Picker.Item key={num} label={num.toString()} value={num.toString()} />
+          ))}
+        </Picker>
+      </View>
+
+      <View style={styles.settingRow}>
+        <Text style={styles.settingLabel}>Filler Trigger (s)</Text>
+        <Picker
+          selectedValue={fillerTrigger}
+          onValueChange={(itemValue) => setFillerTrigger(itemValue)}
+          style={styles.picker}
+        >
+          {Array.from({ length: 10 }, (_, i) => i + 1).map((num) => (
+            <Picker.Item key={num} label={num.toString()} value={num.toString()} />
+          ))}
+        </Picker>
+      </View>
+
+      <View style={styles.settingRow}>
+        <Text style={styles.settingLabel}>Filler Word Mode</Text>
+        <Picker
+          selectedValue={fillerMode}
+          onValueChange={(itemValue) => setFillerMode(itemValue)}
+          style={styles.picker}
+        >
+          <Picker.Item label="Default" value="default" />
+          <Picker.Item label="Custom" value="custom" />
+        </Picker>
+      </View>
+
+      {fillerMode === 'custom' && (
+        <View style={styles.settingRow}>
+          <Text style={styles.settingLabel}>Custom Words</Text>
+          <TextInput
+            value={customWords}
+            onChangeText={setCustomWords}
+            placeholder="Enter words (comma-separated)"
+            placeholderTextColor="#666"
+            style={styles.input}
+            multiline
+          />
+        </View>
+      )}
+    </View>
+  );
+
+  if (loading) {
+    return (
+      <View style={styles.loadingContainer}>
+        <ActivityIndicator size="large" color="#0B132B" />
+      </View>
+    );
+  }
+
+  return (
+    <View style={styles.screen}>
+      <ScrollView 
+        ref={scrollViewRef}
+        contentContainerStyle={styles.container}
+        showsVerticalScrollIndicator={true}
+        keyboardShouldPersistTaps="handled"
+        keyboardDismissMode="on-drag"
+        scrollEventThrottle={16}
+      >
+        {/* Logout Button */}
+        <TouchableOpacity style={styles.logoutBtn} onPress={handleLogout}>
+          <Image source={require('../assets/logout.png')} style={styles.logoutIcon} />
+        </TouchableOpacity>
+
+        {/* Profile Image */}
+        <TouchableOpacity onPress={pickImage}>
+          <Image source={profileImage} style={styles.profilePic} />
+        </TouchableOpacity>
+
+        {/* Username */}
+        <View style={styles.usernameContainer}>
+          {isEditing ? (
+            <TextInput
+              value={username}
+              onChangeText={setUsername}
+              style={styles.usernameInput}
+              onBlur={handleUsernameSave}
+            />
+          ) : (
+            <Text style={styles.username}>{username}</Text>
+          )}
+          <TouchableOpacity onPress={() => setIsEditing(!isEditing)}>
+            <Image source={require('../assets/pen.png')} style={styles.editIcon} />
+          </TouchableOpacity>
+        </View>
+
+        {/* Live Feedback Section */}
+        <TouchableOpacity
+          onPress={() => setShowLiveSettings(!showLiveSettings)}
+          style={styles.liveSettingsHeader}
+        >
+          <Text style={styles.liveSettingsTitle}>Live Feedback Settings</Text>
+          <Text style={styles.liveSettingsToggle}>{showLiveSettings ? '▲' : '▼'}</Text>
+        </TouchableOpacity>
+
+        {showLiveSettings && (
+          <View style={styles.settingsContainer}>
+            {/* Speed Settings */}
+            <TouchableOpacity
+              onPress={() => setExpandedSpeed(!expandedSpeed)}
+              style={styles.settingRow}
+            >
+              <View style={styles.settingPreview}>
+                <Text style={styles.settingLabel}>Speed Settings:</Text>
+                <Text style={styles.settingValue}>{speedValue} WPM</Text>
+              </View>
+            </TouchableOpacity>
+            {expandedSpeed && (
+              <View style={styles.dropdownContent}>
+                <View style={styles.settingGroup}>
+                  <Text style={styles.settingSubLabel}>Speed Range:</Text>
+                  <Picker 
+                    selectedValue={speedValue} 
+                    onValueChange={handleSpeedValueChange} 
+                    style={styles.picker}
+                  >
+                    {Array.from({ length: 16 }, (_, i) => {
+                      const range = `${50 + i * 10}-${60 + i * 10}`;
+                      return (
+                        <Picker.Item 
+                          key={range} 
+                          label={`${range} WPM`} 
+                          value={range}
+                          color={range === speedValue ? '#ADD8E6' : '#000000'}
+                        />
+                      );
+                    })}
+                  </Picker>
+                </View>
+                <View style={styles.settingGroup}>
+                  <Text style={styles.settingSubLabel}>Trigger Count:</Text>
+                  <Picker 
+                    selectedValue={speedTrigger} 
+                    onValueChange={handleSpeedTriggerChange} 
+                    style={styles.picker}
+                  >
+                    {Array.from({ length: 10 }, (_, i) => (
+                      <Picker.Item 
+                        key={i + 1} 
+                        label={`${i + 1}`} 
+                        value={`${i + 1}`}
+                        color={`${i + 1}` === speedTrigger ? '#ADD8E6' : '#000000'}
+                      />
+                    ))}
+                  </Picker>
+                </View>
+              </View>
+            )}
+
+            {/* Filler Settings */}
+            <TouchableOpacity
+              onPress={() => setExpandedFiller(!expandedFiller)}
+              style={styles.settingRow}
+            >
+              <View style={styles.settingPreview}>
+                <Text style={styles.settingLabel}>Filler Settings:</Text>
+                <Text style={styles.settingValue}>Count: {fillerCount}</Text>
+              </View>
+            </TouchableOpacity>
+            {expandedFiller && (
+              <View style={styles.dropdownContent}>
+                <View style={styles.settingGroup}>
+                  <Text style={styles.settingSubLabel}>Filler Count:</Text>
+                  <Picker 
+                    selectedValue={fillerCount} 
+                    onValueChange={handleFillerCountChange} 
+                    style={styles.picker}
+                  >
+                    {Array.from({ length: 20 }, (_, i) => (
+                      <Picker.Item 
+                        key={i + 1} 
+                        label={`${i + 1}`} 
+                        value={`${i + 1}`}
+                        color={`${i + 1}` === fillerCount ? '#ADD8E6' : '#000000'}
+                      />
+                    ))}
+                  </Picker>
+                </View>
+                <View style={styles.settingGroup}>
+                  <Text style={styles.settingSubLabel}>Filler Trigger (s):</Text>
+                  <Picker 
+                    selectedValue={fillerTrigger} 
+                    onValueChange={handleFillerTriggerChange} 
+                    style={styles.picker}
+                  >
+                    {Array.from({ length: 10 }, (_, i) => (
+                      <Picker.Item 
+                        key={i + 1} 
+                        label={`${i + 1}`} 
+                        value={`${i + 1}`}
+                        color={`${i + 1}` === fillerTrigger ? '#ADD8E6' : '#000000'}
+                      />
+                    ))}
+                  </Picker>
+                </View>
+                <View style={styles.settingGroup}>
+                  <Text style={styles.settingSubLabel}>Filler Mode:</Text>
+                  <Picker 
+                    selectedValue={fillerMode} 
+                    onValueChange={handleFillerModeChange} 
+                    style={styles.picker}
+                  >
+                    <Picker.Item 
+                      label="Default" 
+                      value="default"
+                      color={fillerMode === "default" ? '#ADD8E6' : '#000000'}
+                    />
+                    <Picker.Item 
+                      label="Custom" 
+                      value="custom"
+                      color={fillerMode === "custom" ? '#ADD8E6' : '#000000'}
+                    />
+                  </Picker>
+                </View>
+                {fillerMode === "custom" && (
+                  <View style={styles.settingGroup}>
+                    <Text style={styles.settingSubLabel}>Custom Words:</Text>
+                    <TextInput
+                      value={customWords}
+                      onChangeText={handleCustomWordsChange}
+                      placeholder="Enter custom filler words (comma-separated)"
+                      style={styles.input}
+                      multiline
+                    />
+                  </View>
+                )}
+              </View>
+            )}
+
+            {/* Volume Settings */}
+            <TouchableOpacity
+              onPress={() => setExpandedVolume(!expandedVolume)}
+              style={styles.settingRow}
+            >
+              <View style={styles.settingPreview}>
+                <Text style={styles.settingLabel}>Volume Settings:</Text>
+                <Text style={styles.settingValue}>{volumeValue} dB</Text>
+              </View>
+            </TouchableOpacity>
+            {expandedVolume && (
+              <View style={styles.dropdownContent}>
+                <View style={styles.settingGroup}>
+                  <Text style={styles.settingSubLabel}>Volume Range:</Text>
+                  <Picker 
+                    selectedValue={volumeValue} 
+                    onValueChange={handleVolumeValueChange} 
+                    style={styles.picker}
+                  >
+                    {Array.from({ length: 30 }, (_, i) => {
+                      const range = `${i * 5}-${(i + 1) * 5}`;
+                      return (
+                        <Picker.Item 
+                          key={range} 
+                          label={`${range} dB`} 
+                          value={range}
+                          color={range === volumeValue ? '#ADD8E6' : '#000000'}
+                        />
+                      );
+                    })}
+                  </Picker>
+                </View>
+                <View style={styles.settingGroup}>
+                  <Text style={styles.settingSubLabel}>Trigger Count:</Text>
+                  <Picker 
+                    selectedValue={volumeTrigger} 
+                    onValueChange={handleVolumeTriggerChange} 
+                    style={styles.picker}
+                  >
+                    {Array.from({ length: 10 }, (_, i) => (
+                      <Picker.Item 
+                        key={i + 1} 
+                        label={`${i + 1}`} 
+                        value={`${i + 1}`}
+                        color={`${i + 1}` === volumeTrigger ? '#ADD8E6' : '#000000'}
+                      />
+                    ))}
+                  </Picker>
+                </View>
+                <View style={styles.settingGroup}>
+                  <Text style={styles.settingSubLabel}>Calibration:</Text>
+                  <Text style={styles.settingValue}>
+                    {userSettings.volumeZeroPoint ? `${userSettings.volumeZeroPoint.toFixed(1)} dB` : 'Not Calibrated'}
+                  </Text>
+                  <TouchableOpacity 
+                    style={[styles.calibrateButton, isCalibrating && styles.calibratingButton]} 
+                    onPress={calibrateVolume}
+                    disabled={isCalibrating}
+                  >
+                    <Text style={styles.calibrateButtonText}>
+                      {isCalibrating ? 'Calibrating...' : 'Calibrate Volume'}
+                    </Text>
+                  </TouchableOpacity>
+                  {calibrationStatus ? (
+                    <Text style={styles.calibrationStatus}>{calibrationStatus}</Text>
+                  ) : null}
+                </View>
+              </View>
+            )}
+          </View>
+        )}
+      </ScrollView>
+    </View>
+  );
+}

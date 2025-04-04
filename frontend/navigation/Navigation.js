@@ -2,7 +2,6 @@ import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { NavigationContainer } from '@react-navigation/native';
 
 import StartScreen from '../screens/StartScreen';
-import PracticeScreen from '../screens/PracticeScreen';
 import LoginScreen from '../screens/Login';
 import SignupScreen from '../screens/Signup';
 import HomeScreen from '../screens/Home';
@@ -29,7 +28,6 @@ export default function Navigation() {
                 headerShown: false,
               }}
         />
-        <Stack.Screen name="Practice" component={PracticeScreen} />
         <Stack.Screen 
             name="Login" 
             component={LoginScreen} 
