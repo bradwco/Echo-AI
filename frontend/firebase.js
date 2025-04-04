@@ -28,7 +28,7 @@ import {
   deleteObject,
 } from "firebase/storage";
 import axios from 'axios';
-
+import { Audio } from 'expo-av';
 // Firebase config
 const firebaseConfig = {
   apiKey: "AIzaSyDCafsrtsHRc8f_uCo1NBz4fpkdEQAPrPU",
@@ -187,8 +187,8 @@ export const deleteSession = async (sessionId, audioUrl) => {
   }
 };
 
-// Function to upload audio to Firebase and send it to the backend for transcription
-export const uploadAudioAndTranscribe = async (userId, audioUri) => {
+// Function to upload audio to Firebase, send it to the backend for transcription, and upload the duration
+export const uploadFirebase = async (userId, audioUri) => {
   try {
     // Fetch the file from the audio URI
     const response = await fetch(audioUri);
@@ -221,24 +221,40 @@ export const uploadAudioAndTranscribe = async (userId, audioUri) => {
     // Assuming the backend returns the transcript in the response
     const transcript = responseBackend.data.transcript || "";
 
-    // Create a new session in Firestore with the audio URL and the transcript
+    // Create a sound object to calculate the duration
+    const { sound } = await Audio.Sound.createAsync({ uri: audioUri });
+
+    // Get the audio duration from the sound object
+    const status = await sound.getStatusAsync();
+    const audioDuration = status.durationMillis / 1000; // Convert milliseconds to seconds
+
+    console.log('Audio duration:', audioDuration); // Log the duration to ensure it's correct
+
+    // Calculate words per minute (WPM) from transcript
+    const wordCount = transcript ? transcript.split(/\s+/).length : 0; // Word count based on spaces
+    const minutes = audioDuration / 60; // Convert seconds to minutes
+    const speed = minutes > 0 ? Math.round(wordCount / minutes) : 0; // Calculate WPM
+
+    console.log('Calculated speed (WPM):', speed); // Log the calculated WPM
+
+    // Create a new session in Firestore with the audio URL, transcript, speed, and duration
     await addDoc(collection(db, "sessions"), {
       userId,
       audioUrl,
       transcript,
       feedback: [],  // Placeholder, to be filled later if necessary
-      speed: null,
+      speed, // Upload the calculated speed (WPM)
       volume: null,
       fillerWordCount: null,
       fillerWords: [],  // Placeholder, to be filled later
-      duration: null,  // Placeholder, to be filled later
+      duration: audioDuration,  // Upload the duration here
       createdAt: serverTimestamp(),
     });
 
-    console.log("✅ Audio uploaded, transcription saved to Firestore");
+    console.log("✅ Audio uploaded, transcription saved to Firestore, speed and duration uploaded.");
 
   } catch (error) {
-    console.error("❌ Error uploading audio and transcription:", error);
+    console.error("❌ Error uploading audio, transcription, speed, and duration:", error);
   }
 };
 

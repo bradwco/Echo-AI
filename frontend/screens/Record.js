@@ -11,7 +11,7 @@ import {
 } from 'react-native';
 import { Audio } from 'expo-av';
 import * as Sharing from 'expo-sharing';
-import { uploadAudioAndTranscribe, auth } from '../firebase';  // Import the new function
+import { uploadFirebase, auth } from '../firebase';  // Import the new function
 
 const { width } = Dimensions.get('window');
 
@@ -21,6 +21,7 @@ export default function Record() {
   const [time, setTime] = useState(0);
   const intervalRef = useRef(null);
   const [recordingURI, setRecordingURI] = useState(null);
+  const [isLoading, setIsLoading] = useState(false);  // Loading state
 
   const scaleAnim = useRef(new Animated.Value(1)).current;
   const finishScaleAnim = useRef(new Animated.Value(1)).current;
@@ -105,6 +106,7 @@ export default function Record() {
   };
 
   const handleFinish = async () => {
+    setIsLoading(true); // Show loading overlay
     const uri = await stopRecording();
     clearInterval(intervalRef.current);
     setTime(0);
@@ -113,10 +115,13 @@ export default function Record() {
       const user = auth.currentUser;
       if (!user) return;
 
-      // Call the new function to upload the audio, send it for transcription, and store the result in Firebase
-      await uploadAudioAndTranscribe(user.uid, uri);
-
-      Alert.alert('✅ Session Saved', 'Your recording session was successfully created.');
+      try {
+        // Call the new function to upload the audio, send it for transcription, and store the result in Firebase
+        await uploadFirebase(user.uid, uri);
+        Alert.alert('✅ Session Saved', 'Your recording session was successfully created.');
+      } catch (error) {
+        Alert.alert('❌ Error', 'There was an error processing the recording.');
+      }
 
       if (await Sharing.isAvailableAsync()) {
         try {
@@ -130,6 +135,7 @@ export default function Record() {
     }
 
     resetState();
+    setIsLoading(false); // Hide loading overlay once done
   };
 
   const formatTime = (seconds) => {
@@ -155,6 +161,13 @@ export default function Record() {
 
   return (
     <View style={styles.container}>
+      {/* Loading Overlay */}
+      {isLoading && (
+        <View style={styles.overlay}>
+          <Text style={styles.loadingText}>Processing...</Text>
+        </View>
+      )}
+
       <View style={styles.topSection}>
         <Image source={require('../assets/EchoLogoGray.png')} style={styles.logo} />
         <Text style={styles.header}>Recording Session</Text>
@@ -166,8 +179,9 @@ export default function Record() {
             activeOpacity={1}
             onPress={async () => {
               animateButton(scaleAnim);
-              await toggleRecording();
+              if (!isLoading) await toggleRecording(); // Disable action if loading
             }}
+            disabled={isLoading} // Disable button if loading
           >
             <Animated.View style={[styles.controlButton, { transform: [{ scale: scaleAnim }] }]}>
               <Text style={styles.playIcon}>{isRecording ? '❚❚' : '▶'}</Text>
@@ -178,8 +192,9 @@ export default function Record() {
             activeOpacity={1}
             onPress={async () => {
               animateButton(finishScaleAnim);
-              await handleFinish();
+              if (!isLoading) await handleFinish(); // Disable action if loading
             }}
+            disabled={isLoading} // Disable button if loading
           >
             <Animated.View style={[styles.controlButton, { transform: [{ scale: finishScaleAnim }] }]}>
               <Image source={require('../assets/check.png')} style={styles.finishIcon} />
@@ -199,6 +214,22 @@ const styles = StyleSheet.create({
     backgroundColor: '#fff',
     justifyContent: 'space-between',
     alignItems: 'center',
+  },
+  overlay: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    width: '100%',
+    height: '100%',
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    zIndex: 100,
+  },
+  loadingText: {
+    color: '#fff',
+    fontSize: 24,
+    fontWeight: 'bold',
   },
   topSection: {
     alignItems: 'center',
