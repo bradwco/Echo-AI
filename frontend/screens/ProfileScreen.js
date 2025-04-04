@@ -310,21 +310,57 @@ export default function ProfileScreen({ navigation }) {
 
   const handleSettingChange = async (setting, value) => {
     try {
-      // Update local state immediately
+      console.log("Updating setting:", setting, "with value:", value);
+      console.log("Current userSettings:", userSettings);
+      
+      if (!auth.currentUser) {
+        console.error("No authenticated user");
+        Alert.alert('Error', 'You must be logged in to update settings');
+        return;
+      }
+
+      // Create updated settings with the new value
       const updatedSettings = {
         ...userSettings,
-        [setting]: value,
-        volumeZeroPoint: userSettings.volumeZeroPoint // Preserve the volumeZeroPoint
+        [setting]: value
       };
       
-      // Save to Firebase in the background
-      saveUserSettings(auth.currentUser.uid, updatedSettings).then(() => {
-        setUserSettings(updatedSettings);
-        console.log(`✅ ${setting} updated to:`, value);
-      }).catch(error => {
-        console.error(`❌ Error updating ${setting}:`, error);
-        Alert.alert('Error', `Failed to update ${setting}. Please try again.`);
-      });
+      // Update local state immediately
+      switch(setting) {
+        case 'speedValue':
+          setSpeedValue(value);
+          break;
+        case 'speedTrigger':
+          setSpeedTrigger(value);
+          break;
+        case 'volumeValue':
+          setVolumeValue(value);
+          break;
+        case 'volumeTrigger':
+          setVolumeTrigger(value);
+          break;
+        case 'fillerCount':
+          setFillerCount(value);
+          break;
+        case 'fillerMode':
+          setFillerMode(value);
+          break;
+        case 'customWords':
+          setCustomWords(value);
+          break;
+        case 'fillerTrigger':
+          setFillerTrigger(value);
+          break;
+      }
+      
+      // Update userSettings state
+      setUserSettings(updatedSettings);
+      
+      console.log("Saving settings to Firebase:", updatedSettings);
+      
+      // Save to Firebase
+      await saveUserSettings(auth.currentUser.uid, updatedSettings);
+      console.log(`✅ ${setting} updated to:`, value);
     } catch (error) {
       console.error(`❌ Error updating ${setting}:`, error);
       Alert.alert('Error', `Failed to update ${setting}. Please try again.`);
@@ -342,7 +378,8 @@ export default function ProfileScreen({ navigation }) {
   };
 
   const handleVolumeValueChange = (value) => {
-    setVolumeValue(value); // Update local state immediately
+    console.log('Volume value changed to:', value);
+    setVolumeValue(value);
     handleSettingChange('volumeValue', value);
   };
 
@@ -422,13 +459,14 @@ export default function ProfileScreen({ navigation }) {
 
       // Create updated settings object with all current settings plus the new zero point
       const updatedSettings = {
-        speedValue: userSettings.speedValue,
-        speedTrigger: userSettings.speedTrigger,
-        volumeValue: userSettings.volumeValue,
-        volumeTrigger: userSettings.volumeTrigger,
-        fillerCount: userSettings.fillerCount,
-        fillerMode: userSettings.fillerMode,
-        customWords: userSettings.customWords,
+        speedValue: userSettings.speedValue || "50-60",
+        speedTrigger: userSettings.speedTrigger || "3",
+        volumeValue: userSettings.volumeValue || "-70--50",
+        volumeTrigger: userSettings.volumeTrigger || "3",
+        fillerCount: userSettings.fillerCount || "1",
+        fillerTrigger: userSettings.fillerTrigger || "3",
+        fillerMode: userSettings.fillerMode || "default",
+        customWords: userSettings.customWords || "",
         volumeZeroPoint: ambientNoiseLevel
       };
 
@@ -604,11 +642,38 @@ export default function ProfileScreen({ navigation }) {
         <Text style={styles.settingLabel}>Volume Range (dB)</Text>
         <Picker
           selectedValue={volumeValue}
-          onValueChange={(itemValue) => setVolumeValue(itemValue)}
+          onValueChange={handleVolumeValueChange}
           style={styles.picker}
         >
-          {Array.from({ length: 30 }, (_, i) => i * 5).map((num) => (
-            <Picker.Item key={num} label={`${num}-${num + 5}`} value={`${num}-${num + 5}`} />
+          {[
+            { label: "-100 to -80 dB", value: "-100--80" },
+            { label: "-95 to -75 dB", value: "-95--75" },
+            { label: "-90 to -70 dB", value: "-90--70" },
+            { label: "-85 to -65 dB", value: "-85--65" },
+            { label: "-80 to -60 dB", value: "-80--60" },
+            { label: "-75 to -55 dB", value: "-75--55" },
+            { label: "-70 to -50 dB", value: "-70--50" },
+            { label: "-65 to -45 dB", value: "-65--45" },
+            { label: "-60 to -40 dB", value: "-60--40" },
+            { label: "-55 to -35 dB", value: "-55--35" },
+            { label: "-50 to -30 dB", value: "-50--30" },
+            { label: "-45 to -25 dB", value: "-45--25" },
+            { label: "-40 to -20 dB", value: "-40--20" },
+            { label: "-35 to -15 dB", value: "-35--15" },
+            { label: "-30 to -10 dB", value: "-30--10" },
+            { label: "-25 to -5 dB", value: "-25--5" },
+            { label: "-20 to 0 dB", value: "-20-0" },
+            { label: "-15 to 5 dB", value: "-15-5" },
+            { label: "-10 to 10 dB", value: "-10-10" },
+            { label: "-5 to 15 dB", value: "-5-15" },
+            { label: "0 to 20 dB", value: "0-20" }
+          ].map((item) => (
+            <Picker.Item 
+              key={item.value}
+              label={item.label}
+              value={item.value}
+              color={String(volumeValue) === String(item.value) ? '#ADD8E6' : '#000000'}
+            />
           ))}
         </Picker>
       </View>
@@ -875,7 +940,7 @@ export default function ProfileScreen({ navigation }) {
             >
               <View style={styles.settingPreview}>
                 <Text style={styles.settingLabel}>Volume Settings:</Text>
-                <Text style={styles.settingValue}>{volumeValue} dB</Text>
+                <Text style={styles.settingValue}>{volumeValue.replace(/(-?\d+)-(-?\d+)/, '$1 to $2')} dB</Text>
               </View>
             </TouchableOpacity>
             {expandedVolume && (
@@ -887,17 +952,36 @@ export default function ProfileScreen({ navigation }) {
                     onValueChange={handleVolumeValueChange} 
                     style={styles.picker}
                   >
-                    {Array.from({ length: 30 }, (_, i) => {
-                      const range = `${i * 5}-${(i + 1) * 5}`;
-                      return (
-                        <Picker.Item 
-                          key={range} 
-                          label={`${range} dB`} 
-                          value={range}
-                          color={range === volumeValue ? '#ADD8E6' : '#000000'}
-                        />
-                      );
-                    })}
+                    {[
+                      { label: "-100 to -80 dB", value: "-100--80" },
+                      { label: "-95 to -75 dB", value: "-95--75" },
+                      { label: "-90 to -70 dB", value: "-90--70" },
+                      { label: "-85 to -65 dB", value: "-85--65" },
+                      { label: "-80 to -60 dB", value: "-80--60" },
+                      { label: "-75 to -55 dB", value: "-75--55" },
+                      { label: "-70 to -50 dB", value: "-70--50" },
+                      { label: "-65 to -45 dB", value: "-65--45" },
+                      { label: "-60 to -40 dB", value: "-60--40" },
+                      { label: "-55 to -35 dB", value: "-55--35" },
+                      { label: "-50 to -30 dB", value: "-50--30" },
+                      { label: "-45 to -25 dB", value: "-45--25" },
+                      { label: "-40 to -20 dB", value: "-40--20" },
+                      { label: "-35 to -15 dB", value: "-35--15" },
+                      { label: "-30 to -10 dB", value: "-30--10" },
+                      { label: "-25 to -5 dB", value: "-25--5" },
+                      { label: "-20 to 0 dB", value: "-20-0" },
+                      { label: "-15 to 5 dB", value: "-15-5" },
+                      { label: "-10 to 10 dB", value: "-10-10" },
+                      { label: "-5 to 15 dB", value: "-5-15" },
+                      { label: "0 to 20 dB", value: "0-20" }
+                    ].map((item) => (
+                      <Picker.Item 
+                        key={item.value}
+                        label={item.label}
+                        value={item.value}
+                        color={String(volumeValue) === String(item.value) ? '#ADD8E6' : '#000000'}
+                      />
+                    ))}
                   </Picker>
                 </View>
                 <View style={styles.settingGroup}>

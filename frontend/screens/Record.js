@@ -14,6 +14,10 @@ import * as Sharing from 'expo-sharing';
 import { uploadFirebase, auth } from '../firebase';  // Import the new function
 
 const { width } = Dimensions.get('window');
+const WAVEFORM_BARS = 30; // Number of bars in the waveform
+const MIN_DB = -80; // Minimum decibel level
+const MAX_DB = 0;   // Maximum decibel level
+const POLL_INTERVAL = 50; // Poll every 50ms
 
 export default function Record() {
   const [recording, setRecording] = useState(null);
@@ -22,6 +26,9 @@ export default function Record() {
   const intervalRef = useRef(null);
   const [recordingURI, setRecordingURI] = useState(null);
   const [isLoading, setIsLoading] = useState(false);  // Loading state
+  const [audioLevels, setAudioLevels] = useState(Array(WAVEFORM_BARS).fill(0));
+  const levelsRef = useRef(Array(WAVEFORM_BARS).fill(0));
+  const pollIntervalRef = useRef(null);
 
   const scaleAnim = useRef(new Animated.Value(1)).current;
   const finishScaleAnim = useRef(new Animated.Value(1)).current;
@@ -46,6 +53,8 @@ export default function Record() {
       await Audio.setAudioModeAsync({
         allowsRecordingIOS: true,
         playsInSilentModeIOS: true,
+        staysActiveInBackground: true,
+        shouldDuckAndroid: true,
       });
 
       const { recording: newRecording } = await Audio.Recording.createAsync(
@@ -54,6 +63,24 @@ export default function Record() {
 
       setRecording(newRecording);
       setIsRecording(true);
+
+      // Start polling for audio levels
+      pollIntervalRef.current = setInterval(async () => {
+        if (newRecording) {
+          const status = await newRecording.getStatusAsync();
+          if (status.isRecording && status.metering !== undefined) {
+            console.log('Raw Audio Level (dB):', status.metering);
+            // Convert dB to linear scale (0-1)
+            const db = Math.max(MIN_DB, Math.min(MAX_DB, status.metering));
+            const normalizedLevel = (db - MIN_DB) / (MAX_DB - MIN_DB);
+            console.log('Normalized Level:', normalizedLevel);
+            
+            levelsRef.current = [...levelsRef.current.slice(1), normalizedLevel];
+            setAudioLevels(levelsRef.current);
+          }
+        }
+      }, POLL_INTERVAL);
+
     } catch (err) {
       console.error('Failed to start recording', err);
     }
@@ -86,6 +113,12 @@ export default function Record() {
   const stopRecording = async () => {
     try {
       if (recording) {
+        // Clear the polling interval
+        if (pollIntervalRef.current) {
+          clearInterval(pollIntervalRef.current);
+          pollIntervalRef.current = null;
+        }
+
         await recording.stopAndUnloadAsync();
         const uri = recording.getURI();
         setRecordingURI(uri);
@@ -159,6 +192,18 @@ export default function Record() {
     ]).start();
   };
 
+  // Clean up intervals on unmount
+  useEffect(() => {
+    return () => {
+      if (pollIntervalRef.current) {
+        clearInterval(pollIntervalRef.current);
+      }
+      if (intervalRef.current) {
+        clearInterval(intervalRef.current);
+      }
+    };
+  }, []);
+
   return (
     <View style={styles.container}>
       {/* Loading Overlay */}
@@ -171,6 +216,21 @@ export default function Record() {
       <View style={styles.topSection}>
         <Image source={require('../assets/EchoLogoGray.png')} style={styles.logo} />
         <Text style={styles.header}>Recording Session</Text>
+      </View>
+
+      {/* Waveform Visualization */}
+      <View style={styles.waveformContainer}>
+        {audioLevels.map((level, index) => (
+          <View
+            key={index}
+            style={[
+              styles.waveformBar,
+              {
+                height: Math.max(5, level * 100),
+              },
+            ]}
+          />
+        ))}
       </View>
 
       <View style={styles.bottomContainer}>
@@ -299,5 +359,20 @@ const styles = StyleSheet.create({
     fontWeight: 'bold',
     color: '#000',
     marginTop: 20,
+  },
+  waveformContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    height: 100,
+    width: '100%',
+    paddingHorizontal: 20,
+    gap: 2,
+  },
+  waveformBar: {
+    width: 4,
+    backgroundColor: '#0B132B',
+    borderRadius: 2,
+    marginHorizontal: 1,
   },
 });

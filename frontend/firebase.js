@@ -274,14 +274,14 @@ export const countFillerWords = (transcript) => {
 
 export const getUserSettings = async (userId) => {
   try {
-    const docRef = doc(db, 'users', userId);
+    const docRef = doc(db, 'userSettings', userId);
     const docSnap = await getDoc(docRef);
     
     if (docSnap.exists()) {
       const data = docSnap.data();
       return {
         speedValue: data.speedValue || "50-60",
-        volumeValue: data.volumeValue || "0-20",
+        volumeValue: data.volumeValue || "-70--50",
         fillerCount: data.fillerCount || "1",
         speedTrigger: data.speedTrigger || "3",
         volumeTrigger: data.volumeTrigger || "3",
@@ -302,8 +302,8 @@ export const getUserSettings = async (userId) => {
 
 export const saveUserSettings = async (userId, settings) => {
   try {
-    const docRef = doc(db, 'users', userId);
-    await setDoc(docRef, {
+    const docRef = doc(db, 'userSettings', userId);
+    await updateDoc(docRef, {
       speedValue: settings.speedValue,
       volumeValue: settings.volumeValue,
       fillerCount: settings.fillerCount,
@@ -313,7 +313,7 @@ export const saveUserSettings = async (userId, settings) => {
       volumeZeroPoint: settings.volumeZeroPoint,
       fillerMode: settings.fillerMode,
       customWords: settings.customWords
-    }, { merge: true });
+    });
     console.log("Settings saved successfully for user:", userId);
   } catch (error) {
     console.error("Error saving user settings:", error);

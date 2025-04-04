@@ -11,9 +11,15 @@ import {
   Animated,
   Vibration,
   Alert,
+  Dimensions,
 } from 'react-native';
 import { Audio } from 'expo-av';
 import { auth, getUserSettings } from '../firebase';
+
+const { width } = Dimensions.get('window');
+const MIN_DB = -80; // Minimum decibel level
+const MAX_DB = 0;   // Maximum decibel level
+const POLL_INTERVAL = 50; // Poll every 50ms
 
 export default function LiveFeedback() {
   const [enableSpeed, setEnableSpeed] = useState(false);
@@ -23,7 +29,8 @@ export default function LiveFeedback() {
   const [recording, setRecording] = useState(null);
   const [userSettings, setUserSettings] = useState({});
   const [showOverlay, setShowOverlay] = useState(false);
-  const [flashVisible, setFlashVisible] = useState(true);
+  const [flashVisible, setFlashVisible] = useState(false);
+  const [isFlashing, setIsFlashing] = useState(false);
   const [screenFlash, setScreenFlash] = useState(false);
   const [isProcessing, setIsProcessing] = useState(false);
   const [recordingIndicator, setRecordingIndicator] = useState(false);
@@ -52,11 +59,17 @@ export default function LiveFeedback() {
     volume: [],
     filler: []
   });
+  const [audioLevels, setAudioLevels] = useState(Array(30).fill(0));
+  const levelsRef = useRef(Array(30).fill(0));
+  const pollIntervalRef = useRef(null);
+  const flashTimeout = useRef(null);
 
   useEffect(() => {
     isMounted.current = true;
+    
     return () => {
       isMounted.current = false;
+      console.log('📱 Component unmounted');
     };
   }, []);
 
@@ -84,16 +97,49 @@ export default function LiveFeedback() {
   }, []);
 
   const flashScreen = () => {
-    if (!isMounted.current) return;
+    if (!isMounted.current || isFlashing) {
+      console.log('📱 Flash screen skipped:', { isMounted: isMounted.current, isFlashing });
+      return;
+    }
+    
+    // Clear any existing flash timeout
+    if (flashTimeout.current) {
+      clearTimeout(flashTimeout.current);
+      console.log('⏰ Cleared existing flash timeout');
+    }
+    
     console.log('🔴 Screen flash triggered');
-    setScreenFlash(true);
-    setTimeout(() => {
+    
+    // Set flash screen and message
+    setIsFlashing(true);
+    setFlashVisible(true);
+    
+    // Turn off flash after 3 seconds and start grace period
+    flashTimeout.current = setTimeout(() => {
       if (isMounted.current) {
-        setScreenFlash(false);
+        setIsFlashing(false);
+        setFlashVisible(false);
         setFlashMessage('');
+        // Start the grace period after flash ends
+        triggerCounters.current.lastCheck.volume = Date.now();
+        console.log('🟢 Flash screen cleared');
       }
     }, 3000);
   };
+
+  // Initialize trigger timers
+  useEffect(() => {
+    triggerCounters.current = {
+      speed: 0,
+      volume: 0,
+      filler: 0,
+      lastCheck: {
+        speed: 0,
+        volume: 0,
+        filler: 0
+      }
+    };
+  }, []);
 
   const checkThresholds = (data) => {
     if (!userSettings) {
@@ -101,41 +147,133 @@ export default function LiveFeedback() {
       return false;
     }
 
-    console.log('🔍 Checking thresholds with settings:', {
-      speedValue: userSettings.speedValue,
-      volumeValue: userSettings.volumeValue,
-      fillerCount: userSettings.fillerCount,
-      speedTrigger: userSettings.speedTrigger,
-      volumeTrigger: userSettings.volumeTrigger,
-      fillerTrigger: userSettings.fillerTrigger
-    });
-
-    console.log('📊 Current metrics:', {
-      speed: data.speed,
-      volume: data.volume,
-      filler_count: data.filler_count
-    });
-
-    // Update metrics history
-    updateHistory(data);
+    const now = Date.now();
 
     // Check each metric if enabled
     let speedExceeded = false;
     let volumeExceeded = false;
     let fillerExceeded = false;
 
-    if (enableSpeed) {
-      const [minSpeed, maxSpeed] = userSettings.speedValue.split('-').map(Number);
-      const avgSpeed = metricsHistory.speed.slice(-2).reduce((a, b) => a + b, 0) / 2;
-      speedExceeded = avgSpeed < minSpeed || avgSpeed > maxSpeed;
-      console.log('🏃 Speed check:', { avgSpeed, minSpeed, maxSpeed, exceeded: speedExceeded });
+    if (enableVolume) {
+      // Parse the volume range correctly, handling negative values
+      const parts = userSettings.volumeValue.split('--');  // First split by double dash
+      let minVolume, maxVolume;
+      
+      if (parts.length === 2) {
+        // Case: "-100--80" becomes ["100", "80"]
+        minVolume = -parseFloat(parts[0]);
+        maxVolume = -parseFloat(parts[1]);
+      } else {
+        // Fallback to old logic
+        const volumeRange = userSettings.volumeValue.split('-');
+        if (volumeRange[0] === '') {
+          minVolume = -parseFloat(volumeRange[1]);
+          maxVolume = -parseFloat(volumeRange[2]);
+        } else {
+          minVolume = parseFloat(volumeRange[0]);
+          maxVolume = parseFloat(volumeRange[1]);
+        }
+      }
+
+      // Debug log the raw values
+      console.log('🎯 Raw volume settings:', {
+        volumeValue: userSettings.volumeValue,
+        parts,
+        parsedMin: minVolume,
+        parsedMax: maxVolume
+      });
+      
+      const currentVolume = parseFloat(data.volume);
+      // For dB values:
+      // - A higher (less negative) number means louder
+      // - A lower (more negative) number means quieter
+      // Example: -50 dB is louder than -80 dB
+      const isTooLoud = currentVolume > maxVolume;  // e.g., -50 > -80 (true, too loud)
+      const isTooQuiet = currentVolume < minVolume; // e.g., -90 < -100 (false, not too quiet)
+      volumeExceeded = isTooLoud || isTooQuiet;
+      
+      console.log('🔊 Volume check:', {
+        currentVolume,
+        minVolume,
+        maxVolume,
+        isTooLoud,
+        isTooQuiet,
+        message: isTooLoud ? "Volume too high" : isTooQuiet ? "Volume too low" : "Volume in range"
+      });
+      
+      if (volumeExceeded) {
+        // If we're in the grace period, don't check
+        if (triggerCounters.current.lastCheck.volume > 0 && 
+            (now - triggerCounters.current.lastCheck.volume) < 5000) {
+          console.log('⏳ In grace period, skipping check');
+          return false;
+        }
+        
+        if (triggerCounters.current.lastCheck.volume === 0) {
+          triggerCounters.current.lastCheck.volume = now;
+          console.log('⏱️ Starting volume trigger timer');
+        }
+        
+        const triggerSeconds = parseInt(userSettings.volumeTrigger || '3');
+        const elapsedSeconds = (now - triggerCounters.current.lastCheck.volume) / 1000;
+        console.log(`⏱️ Volume elapsed time: ${elapsedSeconds.toFixed(1)}s / ${triggerSeconds}s`);
+        
+        if (elapsedSeconds >= triggerSeconds) {
+          console.log(`🚨 Volume threshold exceeded for ${triggerSeconds} seconds`);
+          // For dB values:
+          // If currentVolume (-50) > maxVolume (-80), we're too loud
+          // If currentVolume (-110) < minVolume (-100), we're too quiet
+          const message = isTooLoud ? "Lower your voice" : "Speak louder";
+          console.log(`📢 Volume feedback: ${message} (current: ${currentVolume}dB, range: ${minVolume}dB to ${maxVolume}dB)`);
+          setFlashMessage(message);
+          console.log('📱 Calling flashScreen from volume check');
+          flashScreen();
+          // Reset the timer after triggering flash
+          triggerCounters.current.lastCheck.volume = now;
+          return true;
+        }
+      } else {
+        // Reset the timer if we're back in range
+        triggerCounters.current.lastCheck.volume = 0;
+      }
     }
 
-    if (enableVolume) {
-      const [minVolume, maxVolume] = userSettings.volumeValue.split('-').map(Number);
-      const avgVolume = metricsHistory.volume.slice(-2).reduce((a, b) => a + b, 0) / 2;
-      volumeExceeded = avgVolume < minVolume || avgVolume > maxVolume;
-      console.log('🔊 Volume check:', { avgVolume, minVolume, maxVolume, exceeded: volumeExceeded });
+    if (enableSpeed) {
+      const speedThreshold = parseInt(userSettings.speedValue);
+      const currentSpeed = parseFloat(data.speed);
+      speedExceeded = currentSpeed > speedThreshold;
+      console.log('🏃 Speed check:', { currentSpeed, threshold: speedThreshold, exceeded: speedExceeded });
+      
+      if (speedExceeded) {
+        // If we're in the grace period, don't check
+        if (triggerCounters.current.lastCheck.speed > 0 && 
+            (now - triggerCounters.current.lastCheck.speed) < 3000) {
+          console.log('⏳ In grace period, skipping check');
+          return false;
+        }
+        
+        if (triggerCounters.current.lastCheck.speed === 0) {
+          triggerCounters.current.lastCheck.speed = now;
+          console.log('⏱️ Starting speed trigger timer');
+        }
+        
+        const triggerSeconds = parseInt(userSettings.speedTrigger || '3');
+        const elapsedSeconds = (now - triggerCounters.current.lastCheck.speed) / 1000;
+        console.log(`⏱️ Speed elapsed time: ${elapsedSeconds.toFixed(1)}s / ${triggerSeconds}s`);
+        
+        if (elapsedSeconds >= triggerSeconds) {
+          console.log(`🚨 Speed threshold exceeded for ${triggerSeconds} seconds`);
+          const message = "Talk slower";
+          setFlashMessage(message);
+          flashScreen();
+          // Reset the timer after triggering flash
+          triggerCounters.current.lastCheck.speed = now;
+          return true;
+        }
+      } else {
+        // Reset the timer if we're back in range
+        triggerCounters.current.lastCheck.speed = 0;
+      }
     }
 
     if (enableFiller) {
@@ -143,41 +281,37 @@ export default function LiveFeedback() {
       const avgFiller = metricsHistory.filler.slice(-2).reduce((a, b) => a + b, 0) / 2;
       fillerExceeded = avgFiller > fillerThreshold;
       console.log('🗣️ Filler check:', { avgFiller, threshold: fillerThreshold, exceeded: fillerExceeded });
-    }
-
-    // Check if any enabled metric has exceeded its threshold for the required number of consecutive readings
-    const speedTriggerCount = parseInt(userSettings.speedTrigger || '3');
-    const volumeTriggerCount = parseInt(userSettings.volumeTrigger || '3');
-    const fillerTriggerCount = parseInt(userSettings.fillerTrigger || '3');
-
-    if (enableSpeed && speedExceeded) {
-      triggerCounters.speed++;
-      if (triggerCounters.speed >= speedTriggerCount) {
-        console.log(`🚨 Speed threshold exceeded for ${speedTriggerCount} consecutive readings`);
-        return true;
+      
+      if (fillerExceeded) {
+        // If we're in the grace period, don't check
+        if (triggerCounters.current.lastCheck.filler > 0 && 
+            (now - triggerCounters.current.lastCheck.filler) < 3000) {
+          console.log('⏳ In grace period, skipping check');
+          return false;
+        }
+        
+        if (triggerCounters.current.lastCheck.filler === 0) {
+          triggerCounters.current.lastCheck.filler = now;
+          console.log('⏱️ Starting filler trigger timer');
+        }
+        
+        const triggerSeconds = parseInt(userSettings.fillerTrigger || '3');
+        const elapsedSeconds = (now - triggerCounters.current.lastCheck.filler) / 1000;
+        console.log(`⏱️ Filler elapsed time: ${elapsedSeconds.toFixed(1)}s / ${triggerSeconds}s`);
+        
+        if (elapsedSeconds >= triggerSeconds) {
+          console.log(`🚨 Filler threshold exceeded for ${triggerSeconds} seconds`);
+          const message = "Reduce filler words";
+          setFlashMessage(message);
+          flashScreen();
+          // Reset the timer after triggering flash
+          triggerCounters.current.lastCheck.filler = now;
+          return true;
+        }
+      } else {
+        // Reset the timer if we're back in range
+        triggerCounters.current.lastCheck.filler = 0;
       }
-    } else {
-      triggerCounters.speed = 0;
-    }
-
-    if (enableVolume && volumeExceeded) {
-      triggerCounters.volume++;
-      if (triggerCounters.volume >= volumeTriggerCount) {
-        console.log(`🚨 Volume threshold exceeded for ${volumeTriggerCount} consecutive readings`);
-        return true;
-      }
-    } else {
-      triggerCounters.volume = 0;
-    }
-
-    if (enableFiller && fillerExceeded) {
-      triggerCounters.filler++;
-      if (triggerCounters.filler >= fillerTriggerCount) {
-        console.log(`🚨 Filler threshold exceeded for ${fillerTriggerCount} consecutive readings`);
-        return true;
-      }
-    } else {
-      triggerCounters.filler = 0;
     }
 
     return false;
@@ -280,65 +414,73 @@ export default function LiveFeedback() {
   };
 
   const startRecording = async () => {
-    if (activeRecordingRef.current) {
-      console.log('⚠️ Recording already in progress');
-      return;
-    }
-
     try {
-      console.log('🔒 Requesting audio permissions...');
+      // First, ensure we have permissions
       await Audio.requestPermissionsAsync();
+      
+      // Set up audio mode
       await Audio.setAudioModeAsync({
         allowsRecordingIOS: true,
         playsInSilentModeIOS: true,
         staysActiveInBackground: true,
+        shouldDuckAndroid: true,
       });
 
-      console.log('🎤 Creating new recording...');
+      // Stop any existing recording first
+      if (recording) {
+        try {
+          await recording.stopAndUnloadAsync();
+        } catch (err) {
+          // Ignore errors if recording is already stopped
+          if (!err.message.includes('already been unloaded') && 
+              !err.message.includes('Recorder does not exist')) {
+            console.error('Error stopping previous recording:', err);
+          }
+        }
+        setRecording(null);
+      }
+
+      // Create new recording
       const { recording: newRecording } = await Audio.Recording.createAsync(
         Audio.RecordingOptionsPresets.HIGH_QUALITY
       );
-      
-      if (isMounted.current) {
-        console.log('✅ Setting recording object...');
-        activeRecordingRef.current = newRecording;
-        setRecording(newRecording);
-        console.log('✅ Recording state updated:', !!newRecording);
-        
-        // Wait for recording state to be set
-        setTimeout(() => {
-          if (isMounted.current && isRecording) {
-            console.log('🔄 Setting up recording interval...');
-            // Clear any existing interval before setting a new one
-            if (recordingInterval.current) {
-              clearInterval(recordingInterval.current);
+
+      setRecording(newRecording);
+      setIsRecording(true);
+
+      // Start polling for audio levels
+      pollIntervalRef.current = setInterval(async () => {
+        if (newRecording) {
+          try {
+            const status = await newRecording.getStatusAsync();
+            if (status.isRecording && status.metering !== undefined) {
+              const zeroPoint = userSettings.volumeZeroPoint || 0;
+              const relativeVolume = status.metering - zeroPoint;
+              
+              // Update current metrics
+              setCurrentMetrics(prev => ({
+                ...prev,
+                volume: `${Math.round(relativeVolume)} dB`,
+                zeroPoint: `${zeroPoint} dB`
+              }));
+
+              // Check thresholds with the current volume
+              checkThresholds({
+                volume: relativeVolume,
+                speed: 0,
+                filler_count: 0
+              });
             }
-
-            // Start the first analysis after a short delay
-            setTimeout(() => {
-              if (isMounted.current && activeRecordingRef.current) {
-                console.log('🎤 Starting first analysis...');
-                loopRecording();
-              }
-            }, 500); // Reduced from 1000ms to 500ms
-
-            // Set up interval for subsequent analyses
-            recordingInterval.current = setInterval(() => {
-              if (isMounted.current && activeRecordingRef.current) {
-                console.log('🔄 Recording interval triggered');
-                loopRecording();
-              }
-            }, 2000); // Reduced from 3000ms to 2000ms
+          } catch (err) {
+            console.error('Error getting recording status:', err);
           }
-        }, 500); // Wait for state to update
-      }
+        }
+      }, POLL_INTERVAL);
+
     } catch (err) {
-      console.error('❌ Recording error:', err);
-      if (isMounted.current) {
-        setIsRecording(false);
-        setRecording(null);
-        activeRecordingRef.current = null;
-      }
+      console.error('Failed to start recording:', err);
+      setIsRecording(false);
+      setRecording(null);
     }
   };
 
@@ -374,8 +516,9 @@ export default function LiveFeedback() {
 
   useEffect(() => {
     let isStarting = false;
+    let cleanup = false;
 
-    if (isRecording) {
+    if (isRecording && !cleanup) {
       console.log('🎥 Starting recording loop...');
       console.log('Feature states:', {
         speed: enableSpeed,
@@ -406,7 +549,7 @@ export default function LiveFeedback() {
           isStarting = false;
         });
       }
-    } else {
+    } else if (!isRecording && !cleanup) {
       console.log('⏹️ Stopping recording loop...');
       clearInterval(recordingInterval.current);
       clearInterval(indicatorInterval.current);
@@ -416,10 +559,13 @@ export default function LiveFeedback() {
     }
 
     return () => {
+      cleanup = true;
       console.log('🧹 Cleaning up intervals...');
       clearInterval(recordingInterval.current);
       clearInterval(indicatorInterval.current);
-      stopRecording();
+      if (recording) {
+        stopRecording();
+      }
       if (isMounted.current) {
         setShowOverlay(false);
         setRecordingIndicator(false);
@@ -512,18 +658,28 @@ export default function LiveFeedback() {
   };
 
   const stopRecording = async () => {
-    if (activeRecordingRef.current) {
-      try {
-        await activeRecordingRef.current.stopAndUnloadAsync();
-      } catch (err) {
-        if (!err.message.includes('already been unloaded') && !err.message.includes('Recorder does not exist')) {
-          console.error('Stop recording error:', err);
+    try {
+      // Clear the polling interval first
+      if (pollIntervalRef.current) {
+        clearInterval(pollIntervalRef.current);
+        pollIntervalRef.current = null;
+      }
+
+      if (recording) {
+        try {
+          await recording.stopAndUnloadAsync();
+        } catch (err) {
+          // Ignore errors if recording is already stopped
+          if (!err.message.includes('already been unloaded') && 
+              !err.message.includes('Recorder does not exist')) {
+            console.error('Stop recording error:', err);
+          }
         }
-      }
-      if (isMounted.current) {
-        activeRecordingRef.current = null;
         setRecording(null);
+        setIsRecording(false);
       }
+    } catch (err) {
+      console.error('Stop recording error:', err);
     }
   };
 
@@ -575,14 +731,10 @@ export default function LiveFeedback() {
     const rawVolume = data.volume;
     const zeroPoint = userSettings.volumeZeroPoint || 0;
     
-    // Make volume more sensitive by:
-    // 1. Using a smaller scaling factor
-    // 2. Adding a boost for normal speech levels
-    // 3. Ensuring we don't go below 0 dB
-    const volumeBoost = 20; // Boost normal speech levels by 20 dB
-    const adjustedVolume = Math.max(0, (rawVolume - zeroPoint) * 1.5 + volumeBoost);
+    // Calculate relative volume without boost
+    const adjustedVolume = rawVolume - zeroPoint;
     
-    // Update metrics with the more sensitive volume
+    // Update metrics with the actual volume
     const newMetrics = {
       ...currentMetrics,
       volume: adjustedVolume.toFixed(1),
@@ -590,11 +742,47 @@ export default function LiveFeedback() {
     };
     
     setCurrentMetrics(newMetrics);
-    checkThresholds(data);
+    
+    // Pass the raw adjusted volume to checkThresholds
+    checkThresholds({
+      ...data,
+      volume: adjustedVolume
+    });
   };
 
+  const checkVolumeThreshold = (normalizedLevel) => {
+    if (!userSettings || !userSettings.volumeValue) return false;
+    
+    // Don't check if we're currently flashing
+    if (isFlashing) {
+      console.log('⏳ Flash in progress, skipping volume check');
+      return false;
+    }
+    
+    // Convert normalized level (0-1) back to dB
+    const currentDb = MIN_DB + (normalizedLevel * (MAX_DB - MIN_DB));
+    
+    // Parse the volume range from settings (e.g., "-70--50")
+    const [minVolume, maxVolume] = userSettings.volumeValue.split('-').map(Number);
+    
+    // Check if current volume is outside the target range
+    return currentDb < minVolume || currentDb > maxVolume;
+  };
+
+  // Cleanup flash timeout on unmount
+  useEffect(() => {
+    return () => {
+      if (flashTimeout.current) {
+        clearTimeout(flashTimeout.current);
+        setIsFlashing(false);
+        setFlashVisible(false);
+        setFlashMessage('');
+      }
+    };
+  }, []);
+
   return (
-    <View style={[styles.screen, screenFlash && styles.flashRed]}>  
+    <View style={styles.screen}>  
       <ScrollView contentContainerStyle={styles.container}>
         <Image source={require('../assets/EchoLogoGray.png')} style={styles.logo} />
         <Text style={styles.title}>Live Feedback</Text>
@@ -656,19 +844,40 @@ export default function LiveFeedback() {
         <View style={styles.overlay} pointerEvents="box-none">
           <View style={[styles.recordingIndicator, recordingIndicator && styles.recordingIndicatorActive]} />
           <View style={styles.metricsContainer}>
-            {enableSpeed && <Text style={styles.metricText}>Current Speed: {currentMetrics.speed || '0.0 WPM'}</Text>}
-            {enableVolume && (
-              <>
-                <Text style={styles.metricText}>Current Volume: {currentMetrics.volume || '0.0 dB'}</Text>
-                <Text style={styles.metricText}>Zero Point: {currentMetrics.zeroPoint || '0.0 dB'}</Text>
-              </>
+            {enableSpeed && (
+              <View style={styles.metricSection}>
+                <Text style={styles.metricHeader}>Speed Settings</Text>
+                <Text style={styles.metricText}>Current: {currentMetrics.speed || '0.0 WPM'}</Text>
+                <Text style={styles.metricText}>Target: {userSettings.speedValue} WPM</Text>
+                <Text style={styles.metricText}>Trigger: {userSettings.speedTrigger}s</Text>
+              </View>
             )}
-            {enableFiller && <Text style={styles.metricText}>Filler Words: {currentMetrics.fillers || '0'}</Text>}
+            {enableVolume && (
+              <View style={styles.metricSection}>
+                <Text style={styles.metricHeader}>Volume Settings</Text>
+                <Text style={styles.metricText}>Current: {currentMetrics.volume || '0.0 dB'}</Text>
+                <Text style={styles.metricText}>Target: {userSettings.volumeValue} dB</Text>
+                <Text style={styles.metricText}>Zero Point: {currentMetrics.zeroPoint || '0.0 dB'}</Text>
+                <Text style={styles.metricText}>Trigger: {userSettings.volumeTrigger}s</Text>
+              </View>
+            )}
+            {enableFiller && (
+              <View style={styles.metricSection}>
+                <Text style={styles.metricHeader}>Filler Settings</Text>
+                <Text style={styles.metricText}>Current: {currentMetrics.fillers || '0'}</Text>
+                <Text style={styles.metricText}>Target: {userSettings.fillerCount}</Text>
+                <Text style={styles.metricText}>Mode: {userSettings.fillerMode}</Text>
+                <Text style={styles.metricText}>Trigger: {userSettings.fillerTrigger}s</Text>
+                {userSettings.customWords && (
+                  <Text style={styles.metricText}>Custom Words: {userSettings.customWords}</Text>
+                )}
+              </View>
+            )}
           </View>
         </View>
       )}
 
-      {screenFlash && (
+      {flashVisible && (
         <View style={styles.flashOverlay}>
           <Text style={styles.flashText}>{flashMessage}</Text>
         </View>
@@ -679,7 +888,6 @@ export default function LiveFeedback() {
 
 const styles = StyleSheet.create({
   screen: { flex: 1, backgroundColor: '#f8f9fa' },
-  flashRed: { backgroundColor: '#FF6B6B' },
   container: { 
     flex: 1,
     paddingTop: 40, 
@@ -829,20 +1037,42 @@ const styles = StyleSheet.create({
     textShadowOffset: { width: 0, height: 1 },
     textShadowRadius: 2,
     letterSpacing: 0.5,
+    position: 'absolute',
+    top: '50%',
+    left: 0,
+    right: 0,
+    transform: [{ translateY: -16 }],
   },
   metricsContainer: {
     backgroundColor: 'rgba(255, 255, 255, 0.1)',
     padding: 16,
     borderRadius: 12,
     width: '80%',
-    alignItems: 'center',
+    alignItems: 'stretch',
     marginTop: 20,
+  },
+  metricSection: {
+    marginBottom: 20,
+    paddingBottom: 15,
+    borderBottomWidth: 1,
+    borderBottomColor: 'rgba(255, 255, 255, 0.1)',
+  },
+  metricHeader: {
+    color: '#ADD8E6',
+    fontSize: 20,
+    fontWeight: '600',
+    textAlign: 'center',
+    marginBottom: 8,
+    letterSpacing: 0.5,
+    textShadowColor: 'rgba(0, 0, 0, 0.2)',
+    textShadowOffset: { width: 0, height: 1 },
+    textShadowRadius: 2,
   },
   metricText: {
     color: 'white',
-    fontSize: 18,
+    fontSize: 16,
     fontWeight: '500',
-    textAlign: 'center',
+    textAlign: 'left',
     textShadowColor: 'rgba(0, 0, 0, 0.2)',
     textShadowOffset: { width: 0, height: 1 },
     textShadowRadius: 2,
@@ -869,5 +1099,21 @@ const styles = StyleSheet.create({
     backgroundColor: '#FF6B6B',
     shadowColor: '#FF6B6B',
     shadowOpacity: 0.5,
+  },
+  waveformContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    height: 100,
+    width: '100%',
+    paddingHorizontal: 20,
+    gap: 2,
+    marginVertical: 20,
+  },
+  waveformBar: {
+    width: 4,
+    backgroundColor: '#0B132B',
+    borderRadius: 2,
+    marginHorizontal: 1,
   },
 });
